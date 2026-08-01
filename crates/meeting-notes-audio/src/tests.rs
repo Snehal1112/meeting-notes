@@ -17,9 +17,9 @@ fn start_creates_output_file_after_stop() {
 fn analyze_and_trim_short_buffer_keeps_all_samples() {
     let sample_rate = 16_000;
     let samples: Vec<i16> = vec![100, -100, 200, -200]; // far fewer than 8000
-    let (trimmed, verdict) = analyze_and_trim(&samples, sample_rate);
+    let (trimmed, warning) = analyze_and_trim(&samples, sample_rate);
     assert_eq!(trimmed, samples);
-    assert!(verdict.is_ok(), "expected Ok verdict, got {:?}", verdict);
+    assert!(warning.is_none(), "expected no warning, got {:?}", warning);
 }
 
 /// A buffer with near-zero DC offset and no clipping should pass the quality
@@ -35,9 +35,10 @@ fn analyze_and_trim_clean_signal_passes_and_trims() {
         .map(|i| if i % 2 == 0 { 500 } else { -500 })
         .collect();
 
-    let (trimmed, verdict) = analyze_and_trim(&samples, sample_rate);
-    assert!(verdict.is_ok(), "expected Ok verdict, got {:?}", verdict);
+    let (trimmed, warning) = analyze_and_trim(&samples, sample_rate);
+    assert!(warning.is_none(), "expected no warning, got {:?}", warning);
     assert_eq!(trimmed.len(), total_len - trim_count);
+    assert_eq!(trimmed, samples[trim_count..]);
 }
 
 /// A buffer with a large constant DC offset should be flagged as a likely mic fault.
@@ -49,12 +50,12 @@ fn analyze_and_trim_large_dc_offset_is_flagged() {
 
     let samples: Vec<i16> = vec![5000; total_len];
 
-    let (_trimmed, verdict) = analyze_and_trim(&samples, sample_rate);
-    match verdict {
-        Err(RecordingError::LikelyMicFault { dc_offset_mean, .. }) => {
+    let (_trimmed, warning) = analyze_and_trim(&samples, sample_rate);
+    match warning {
+        Some(QualityWarning { dc_offset_mean, .. }) => {
             assert!((dc_offset_mean - 5000.0).abs() < 0.01);
         }
-        other => panic!("expected LikelyMicFault, got {:?}", other),
+        other => panic!("expected Some(QualityWarning), got {:?}", other),
     }
 }
 
@@ -72,9 +73,9 @@ fn analyze_and_trim_clipping_is_flagged_independently_of_dc_offset() {
         .map(|i| if i % 2 == 0 { 32000 } else { -32000 })
         .collect();
 
-    let (_trimmed, verdict) = analyze_and_trim(&samples, sample_rate);
-    match verdict {
-        Err(RecordingError::LikelyMicFault {
+    let (_trimmed, warning) = analyze_and_trim(&samples, sample_rate);
+    match warning {
+        Some(QualityWarning {
             dc_offset_mean,
             clipping_ratio,
         }) => {
@@ -87,6 +88,71 @@ fn analyze_and_trim_clipping_is_flagged_independently_of_dc_offset() {
                 "expected high clipping ratio, got {clipping_ratio}"
             );
         }
-        other => panic!("expected LikelyMicFault, got {:?}", other),
+        other => panic!("expected Some(QualityWarning), got {:?}", other),
     }
+}
+
+/// Exercises the real read-WAV -> analyze -> rewrite-WAV sequence used by
+/// `stop()`, without needing `pw-record` or real mic hardware: synthesizes a
+/// WAV file on disk via `hound::WavWriter`, then calls `trim_and_check_file`
+/// directly on it.
+#[test]
+fn trim_and_check_file_rewrites_wav_and_flags_dc_offset() {
+    let sample_rate = 16_000u32;
+    let trim_count = ((sample_rate as u64 * TRIM_LEADING_MS as u64) / 1000) as usize;
+    let post_trim_len = 4000usize;
+    let total_len = trim_count + post_trim_len;
+
+    // Leading (pre-trim) window: heavy clipping, which must be discarded by
+    // the trim and therefore must NOT influence the returned warning.
+    let leading: Vec<i16> = vec![32000; trim_count];
+    // Trailing (post-trim) window: a large constant DC offset, no clipping.
+    let trailing: Vec<i16> = vec![5000; post_trim_len];
+
+    let samples: Vec<i16> = leading.into_iter().chain(trailing).collect();
+    assert_eq!(samples.len(), total_len);
+
+    let tmp = std::env::temp_dir().join(format!(
+        "trim-and-check-test-{}-{}.wav",
+        std::process::id(),
+        line!()
+    ));
+
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    {
+        let mut writer = hound::WavWriter::create(&tmp, spec).expect("should create wav");
+        for sample in &samples {
+            writer.write_sample(*sample).expect("should write sample");
+        }
+        writer.finalize().expect("should finalize wav");
+    }
+
+    let warning = trim_and_check_file(&tmp).expect("should trim and check file");
+
+    match &warning {
+        Some(QualityWarning { dc_offset_mean, .. }) => {
+            assert!(
+                (dc_offset_mean - 5000.0).abs() < 0.01,
+                "expected dc_offset_mean ~5000 from post-trim samples only, got {dc_offset_mean}"
+            );
+        }
+        None => panic!("expected Some(QualityWarning) from the DC-offset trailing window"),
+    }
+
+    // (a) rewritten file's sample count matches the expected post-trim count.
+    // (c) file is still valid enough for WavReader::open to succeed.
+    let mut reader = hound::WavReader::open(&tmp).expect("rewritten wav should still open");
+    let rewritten: Vec<i16> = reader
+        .samples::<i16>()
+        .collect::<Result<Vec<i16>, hound::Error>>()
+        .expect("rewritten wav samples should be readable");
+    assert_eq!(rewritten.len(), post_trim_len);
+    assert_eq!(rewritten, vec![5000i16; post_trim_len]);
+
+    let _ = std::fs::remove_file(&tmp);
 }

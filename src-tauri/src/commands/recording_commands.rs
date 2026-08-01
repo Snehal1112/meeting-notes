@@ -1,4 +1,4 @@
-use meeting_notes_audio::{RecordingError, RecordingHandle};
+use meeting_notes_audio::RecordingHandle;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -13,33 +13,29 @@ pub struct StopRecordingResult {
     pub quality_warning: Option<String>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn start_recording(state: State<RecordingState>, output_path: String) -> Result<(), String> {
+    let mut guard = state.0.lock().unwrap();
+    if guard.is_some() {
+        return Err("a recording is already in progress".to_string());
+    }
     let path = PathBuf::from(output_path);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let handle = RecordingHandle::start_mic(&path).map_err(|e| e.to_string())?;
-    *state.0.lock().unwrap() = Some(handle);
+    *guard = Some(handle);
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn stop_recording(state: State<RecordingState>) -> Result<StopRecordingResult, String> {
     let mut guard = state.0.lock().unwrap();
     let mut handle = guard.take().ok_or("no active recording")?;
     let output_path = handle.output_path().to_string_lossy().to_string();
-    match handle.stop() {
-        Ok(()) => Ok(StopRecordingResult {
-            output_path,
-            quality_warning: None,
-        }),
-        // The (trimmed) WAV file was still written successfully here, so the
-        // caller gets its path back with a warning rather than an error.
-        Err(err @ RecordingError::LikelyMicFault { .. }) => Ok(StopRecordingResult {
-            output_path,
-            quality_warning: Some(err.to_string()),
-        }),
-        Err(err) => Err(err.to_string()),
-    }
+    let warning = handle.stop().map_err(|e| e.to_string())?;
+    Ok(StopRecordingResult {
+        output_path,
+        quality_warning: warning.map(|w| w.to_string()),
+    })
 }
