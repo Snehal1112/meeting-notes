@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = [
+    "src-tauri",
+    "crates/meeting-notes-core",
+    "crates/meeting-notes-audio",
+    "crates/meeting-notes-transcription",
+    "crates/meeting-notes-summary",
+    "crates/meeting-notes-storage",
+]
