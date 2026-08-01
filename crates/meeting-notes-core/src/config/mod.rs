@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
@@ -29,6 +31,37 @@ impl Config {
         // just means the app can run local-only without an LLM provider.
         true
     }
+}
+
+pub fn config_file_path() -> Option<PathBuf> {
+    directories::ProjectDirs::from("com", "meeting-notes", "meeting-notes")
+        .map(|dirs| dirs.config_dir().join("config.toml"))
+}
+
+pub fn load_from_file() -> Config {
+    let Some(path) = config_file_path() else {
+        return Config::default();
+    };
+    let Ok(contents) = std::fs::read_to_string(&path) else {
+        return Config::default();
+    };
+    toml::from_str(&contents).unwrap_or_default()
+}
+
+pub fn resolve_config() -> Config {
+    Config::from_env().merge(load_from_file())
+}
+
+pub fn save_to_file(config: &Config) -> std::io::Result<()> {
+    let Some(path) = config_file_path() else {
+        return Err(std::io::Error::other("no config dir"));
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let toml_str =
+        toml::to_string_pretty(config).map_err(|e| std::io::Error::other(e.to_string()))?;
+    std::fs::write(path, toml_str)
 }
 
 #[cfg(test)]
