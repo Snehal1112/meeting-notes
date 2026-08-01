@@ -15,10 +15,12 @@
         "title": "Meeting Notes",
         "width": 400,
         "height": 300,
-        "resizable": false,
+        "minWidth": 400,
+        "minHeight": 300,
+        "resizable": true,
         "alwaysOnTop": true,
         "decorations": false,
-        "transparent": false,
+        "transparent": true,
         "skipTaskbar": false
       }
     ],

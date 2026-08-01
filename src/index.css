@@ -121,8 +121,14 @@
   * {
     @apply border-border outline-ring/50;
     }
+  html, body, #root {
+    /* The OS window itself is transparent so the widget's own rounded-lg
+       container shows real rounded corners; body must not paint over that
+       with an opaque rectangle. */
+    background: transparent;
+    }
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
     }
   button:not(:disabled), [role="button"]:not(:disabled) {
     cursor: pointer;

@@ -11,7 +11,7 @@ export function TitleBar() {
           getCurrentWindow().startDragging();
         }
       }}
-      className="h-8 flex items-center px-3 text-xs text-muted-foreground select-none border-b"
+      className="h-8 flex items-center px-3 text-xs text-muted-foreground select-none border-b bg-background"
     >
       Meeting Notes
     </div>
