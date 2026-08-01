@@ -91,3 +91,47 @@ pw-record --target 52 -P '{ stream.capture.sink=true }' \
 - Plan 05's system-audio capture should target the default sink's node id
   (resolved at runtime, e.g. via `wpctl` or the PipeWire API) with
   `stream.capture.sink=true`, not a `pactl`-style `.monitor` source name.
+
+## Task 3: whisper.cpp + LLM provider connectivity
+
+**whisper.cpp:** built from source (`git clone --depth 1
+https://github.com/ggerganov/whisper.cpp`, `cmake -B build`, `cmake --build
+build --config Release`) — succeeded cleanly, no missing deps. This machine's
+`cmake`/`gcc`/`git` versions (4.4.2 / 13.3.0 / 2.43.0) are all well above
+minimum requirements.
+
+- **Binary path:** `build/bin/whisper-cli` (not `main` — that name also
+  exists in this build but `whisper-cli` is the current CLI entry point;
+  update Plan 08's `whisper_binary_path()` default to `whisper-cli`).
+- **Model:** `base.en` downloaded via `models/download-ggml-model.sh base.en`
+  → saved as `models/ggml-base.en.bin` (141MB), matching Plan 08's assumed
+  `format!("models/ggml-{model}.bin")` pattern exactly — no change needed
+  there.
+- **Transcription test:** ran `whisper-cli -m models/ggml-base.en.bin -f
+  /tmp/mic-test.wav -oj -of /tmp/mic-test` (the broken mic recording from
+  Task 2). Completed in <1s for a 4.7s clip. Output correctly identified
+  most of the clip as `[BLANK_AUDIO]`, consistent with the known mic-noise
+  issue — this incidentally further confirms the mic capture problem is real
+  (whisper found no coherent speech in it either).
+- **JSON shape:** matches Plan 08's `parse_whisper_json` assumption exactly
+  — top-level `transcription` array, each entry has `timestamps: {from, to}`,
+  `offsets: {from, to}` (milliseconds), and `text`. No parser changes needed.
+
+**LLM provider connectivity — both confirmed reachable:**
+
+- **Claude API:** `curl https://api.anthropic.com/v1/messages` with
+  `MEETING_NOTES_CLAUDE_API_KEY` (sourced from a local file, kept out of
+  shell history/logs) and model `claude-sonnet-4-6` → valid JSON response
+  with `content[0].text`. Confirmed working.
+- **Ollama:** already running as a systemd service (`ollama.service`,
+  active) with several models already pulled locally — no need to `ollama
+  pull llama3` fresh. Tested `curl http://localhost:11434/api/generate`
+  with the already-available `gemma4:e2b` model → valid JSON response with
+  a `response` field. Confirmed working. (Any already-pulled model works for
+  this connectivity check; Plan 10 should read the configured model name
+  from config rather than hardcoding `llama3`.)
+
+_All three tasks in this plan complete. Known open item: mic capture is
+broken on this specific dev machine (see Task 2) and must be resolved (fixed
+driver/firmware config, or an external USB mic) before Plan 04 can be
+verified end-to-end here._
