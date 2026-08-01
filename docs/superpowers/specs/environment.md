@@ -33,7 +33,9 @@ session, so it can't be installed here. Use the native PipeWire tools instead:
 assume `pactl` is present — either add `pulseaudio-utils` to Plan 00's apt
 step, or write capture code against `wpctl`/raw PipeWire APIs directly.
 
-**Mic capture: BROKEN on this machine — confirmed, not a config issue.**
+**Mic capture: FIXED — see "Resolution" below. Original findings kept for
+context since the root cause (DC offset, not random noise) is a useful
+diagnostic pattern for anyone hitting this on similar AMD hardware.**
 
 ```bash
 pw-record --channels=1 --rate=16000 /tmp/mic-test.wav &
@@ -66,11 +68,52 @@ aplay -D pipewire /tmp/mic-test.wav
   17h/19h HD Audio Controller) needs beamforming/AGC processing this
   machine's driver stack isn't applying, so `pw-record` gets a raw/noisy
   signal instead of a processed one.
-- **Action needed before Plan 04 can rely on mic capture on this machine:**
-  either fix the AMD DMIC driver/firmware setup (needs further hardware-
-  specific research and likely sudo), or use an external USB mic as a
-  workaround. Plan 04 should not assume this "just works" from the design
-  spec's description.
+**Resolution (2026-08-01, follow-up investigation):** the mic was never
+actually broken — the "noise" was a large **constant DC offset**, not random
+noise. Raw ALSA capture on `hw:2,0` (card 2, `acp63` — the AMD Audio
+CoProcessor backing this array, never tested directly until this follow-up)
+showed a fixed offset of +2250 (channel FL) and +11700 (channel FR) on a
+16-bit scale, present on every recording. `snd_sof_amd_acp63` is loaded but
+unused (refcount 0); the card is actually driven by the legacy
+`snd_pci_ps`/PDM path, which has zero mixer controls and does no DC-blocking
+— normally the SOF DSP would do this. On top of that, the mic's PipeWire
+volume had drifted to 1.53, which multiplied channel FR's offset into ~99%
+hard clipping — that's the loud "noise floor" and t=0 pop that was
+originally captured. The `api.alsa.acp.device` SPA handle failure noted
+above was a red herring; WirePlumber falls back to a working UCM path
+regardless.
+
+**Fix applied (user-space only, no sudo/reboot needed):**
+1. New file `~/.config/pipewire/pipewire.conf.d/99-dmic-dcblock.conf` — a
+   `libpipewire-module-filter-chain` publishing a corrected virtual source
+   ("Digital Microphone (DC-blocked)") that applies an 80Hz high-pass filter
+   per channel to remove the DC offset.
+2. Mic volume reset from 1.53 → 1.00 (persisted in WirePlumber's
+   `default-routes` state) so the raw offset isn't re-amplified upstream of
+   the filter.
+3. Default input source set to the new DC-blocked virtual source
+   (`priority.session = 3000` was needed or WirePlumber reverts the default).
+
+**Verified fixed:** live re-test via `scripts/test-mic-capture.py` — DC
+offset dropped from ~5000+ to 0.2, RMS now varies naturally across chunks
+(525–5000) instead of sitting flat, and the recording was confirmed by ear.
+
+**Caveat for later plans:** the DC offset is upstream of the filter, so it's
+still amplified by the *raw* device's volume. If anything pushes
+`alsa_input.pci-0000_64_00.6.HiFi__hw_acp63__source`'s volume back above
+~1.0, channel FR will clip again and the filter can't recover it — if the
+noise ever returns, check `wpctl get-volume <raw Digital Microphone id>`
+first. Plan 04 should capture from the default input device (now correctly
+resolves to the DC-blocked source) rather than targeting a specific node by
+name, and should discard the first ~500ms of every recording (startup DC
+step / filter settling time). This fix is specific to this dev machine's
+`~/.config/pipewire/` — a fresh machine with the same hardware would need
+the same filter-chain config re-applied; it is not part of the app itself
+and shouldn't be assumed present on end-user machines. Plan 04's design
+should treat this class of DC-offset/clipping issue as a real failure mode
+to detect and surface to the user (not just "no monitor source" /
+mic-missing), since a symptom like this can otherwise look like the app
+recorded successfully.
 
 **System audio (monitor) capture: WORKS**, verified without needing a human
 listener — played a synthetic 440Hz test tone through the default sink while
