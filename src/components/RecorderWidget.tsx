@@ -2,15 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { startRecording, stopRecording } from "@/lib/recording";
+import { createNewMeeting, getDataDir, updateMeetingStatus, type MeetingMeta } from "@/lib/storage";
 import { Waveform } from "@/components/Waveform";
 
 type WidgetState = "idle" | "recording" | "processing" | "done";
-
-function meetingDirName(title: string): string {
-  const ts = new Date().toISOString().replace(/[:.]/g, "-");
-  const slug = title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 30);
-  return slug ? `${ts}_${slug}` : ts;
-}
 
 export function RecorderWidget() {
   const [state, setState] = useState<WidgetState>("idle");
@@ -20,7 +15,7 @@ export function RecorderWidget() {
   const [qualityWarning, setQualityWarning] = useState<string | null>(null);
   const [recordingError, setRecordingError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const meetingDirRef = useRef<string>("");
+  const currentMeetingRef = useRef<MeetingMeta | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Wall-clock start time, so the elapsed timer cannot drift when ticks are throttled.
   const startedAtRef = useRef<number>(0);
@@ -44,11 +39,12 @@ export function RecorderWidget() {
     if (busy) return;
     setBusy(true);
     setRecordingError(null);
-    meetingDirRef.current = meetingDirName(title);
-    const outputPath = `${meetingsBaseDir()}/${meetingDirRef.current}/audio.wav`;
     setElapsedSeconds(0);
     setQualityWarning(null);
     try {
+      const meeting = await createNewMeeting(title);
+      currentMeetingRef.current = meeting;
+      const outputPath = `${await meetingsDataDir()}/meetings/${meeting.id}/audio.wav`;
       const usedSystemAudio = await startRecording(outputPath);
       setMicOnlyWarning(!usedSystemAudio);
       startedAtRef.current = Date.now();
@@ -68,6 +64,21 @@ export function RecorderWidget() {
       const result = await stopRecording();
       setQualityWarning(result.quality_warning);
       setState("processing");
+
+      // The audio is already safely on disk at this point, so a failure to
+      // update the meeting index shouldn't block the UI transition or be
+      // reported as a recording error — just log it so it isn't silently lost.
+      if (currentMeetingRef.current) {
+        try {
+          await updateMeetingStatus({
+            ...currentMeetingRef.current,
+            status: "Transcribing",
+            duration_seconds: elapsedSeconds,
+          });
+        } catch (err) {
+          console.error("Failed to update meeting status in index:", errorMessage(err));
+        }
+      }
     } catch (err) {
       // The backend already dropped its recording state before failing, so
       // staying on the recording screen would wedge the widget. Go back to idle.
@@ -135,7 +146,6 @@ function errorMessage(err: unknown): string {
   return String(err);
 }
 
-// Placeholder resolved for real in plan 07 (meeting file storage).
-function meetingsBaseDir(): string {
-  return "/tmp/meeting-notes/meetings";
+function meetingsDataDir(): Promise<string> {
+  return getDataDir();
 }

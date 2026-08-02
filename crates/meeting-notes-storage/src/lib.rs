@@ -1,6 +1,21 @@
 use meeting_notes_core::meeting::{MeetingMeta, MeetingStatus};
 use std::path::{Path, PathBuf};
 
+/// Resolves the app's data directory (e.g. `~/.local/share/meeting-notes` on Linux).
+pub fn base_dir() -> Option<PathBuf> {
+    directories::ProjectDirs::from("com", "meeting-notes", "meeting-notes")
+        .map(|dirs| dirs.data_dir().to_path_buf())
+}
+
+/// Meetings whose status never advanced past Recording — likely crashed/interrupted.
+pub fn find_orphaned_meetings(base: &Path) -> std::io::Result<Vec<MeetingMeta>> {
+    let index = load_index(base)?;
+    Ok(index
+        .into_iter()
+        .filter(|m| m.status == MeetingStatus::Recording)
+        .collect())
+}
+
 fn slugify(title: &str) -> String {
     let slug: String = title
         .to_lowercase()

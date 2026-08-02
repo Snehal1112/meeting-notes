@@ -71,7 +71,11 @@ pub fn run() {
             commands::config_commands::save_config,
             commands::config_commands::config_needs_setup,
             commands::recording_commands::start_recording,
-            commands::recording_commands::stop_recording
+            commands::recording_commands::stop_recording,
+            commands::storage_commands::create_new_meeting,
+            commands::storage_commands::update_meeting_status,
+            commands::storage_commands::get_orphaned_meetings,
+            commands::storage_commands::get_data_dir
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -59,3 +59,28 @@ fn update_meeting_errors_when_id_not_found() {
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::NotFound);
 }
+
+#[test]
+fn find_orphaned_meetings_returns_only_recording_status() {
+    let base = tempdir().unwrap();
+
+    let orphan = create_meeting(base.path(), "Interrupted call").unwrap();
+    append_to_index(base.path(), &orphan).unwrap();
+
+    let mut finished = create_meeting(base.path(), "Finished call").unwrap();
+    append_to_index(base.path(), &finished).unwrap();
+    finished.status = MeetingStatus::Done;
+    finished.duration_seconds = Some(600);
+    update_meeting(base.path(), &finished).unwrap();
+
+    let orphans = find_orphaned_meetings(base.path()).unwrap();
+    assert_eq!(orphans.len(), 1);
+    assert_eq!(orphans[0].id, orphan.id);
+}
+
+#[test]
+fn find_orphaned_meetings_returns_empty_when_no_index() {
+    let base = tempdir().unwrap();
+    let orphans = find_orphaned_meetings(base.path()).unwrap();
+    assert!(orphans.is_empty());
+}
