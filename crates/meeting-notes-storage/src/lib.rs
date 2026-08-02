@@ -60,7 +60,12 @@ pub fn load_index(base: &Path) -> std::io::Result<Vec<MeetingMeta>> {
 
 fn save_index(base: &Path, index: &[MeetingMeta]) -> std::io::Result<()> {
     let contents = serde_json::to_string_pretty(index)?;
-    std::fs::write(index_path(base), contents)
+    // Write to a temp file and rename over the real path so a crash mid-write
+    // can never leave index.json truncated or corrupt — rename is atomic on
+    // the same filesystem.
+    let tmp = base.join("index.json.tmp");
+    std::fs::write(&tmp, contents)?;
+    std::fs::rename(tmp, index_path(base))
 }
 
 pub fn append_to_index(base: &Path, meta: &MeetingMeta) -> std::io::Result<()> {

@@ -84,3 +84,32 @@ fn find_orphaned_meetings_returns_empty_when_no_index() {
     let orphans = find_orphaned_meetings(base.path()).unwrap();
     assert!(orphans.is_empty());
 }
+
+#[test]
+fn save_index_does_not_leak_tmp_file() {
+    let base = tempdir().unwrap();
+    let meta = create_meeting(base.path(), "Standup").unwrap();
+    append_to_index(base.path(), &meta).unwrap();
+
+    assert!(!base.path().join("index.json.tmp").exists());
+    assert!(base.path().join("index.json").exists());
+}
+
+#[test]
+fn save_index_overwrites_leftover_tmp_file_from_a_prior_crash() {
+    let base = tempdir().unwrap();
+
+    // Simulate a leftover temp file from a process that got killed mid-write
+    // during a previous save_index call.
+    std::fs::write(base.path().join("index.json.tmp"), "garbage, not json").unwrap();
+
+    let meta = create_meeting(base.path(), "Standup").unwrap();
+    append_to_index(base.path(), &meta).unwrap();
+
+    // The stray tmp file must not corrupt the fresh save, and must not
+    // survive as leftover cruft after a subsequent successful save.
+    assert!(!base.path().join("index.json.tmp").exists());
+    let index = load_index(base.path()).unwrap();
+    assert_eq!(index.len(), 1);
+    assert_eq!(index[0].id, meta.id);
+}
