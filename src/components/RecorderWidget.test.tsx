@@ -1,5 +1,5 @@
 import { StrictMode } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { RecorderWidget } from "./RecorderWidget";
 import type { MeetingMeta } from "@/lib/storage";
@@ -23,6 +23,10 @@ vi.mock("@/lib/transcription", () => ({
 
 vi.mock("@/lib/config", () => ({
   getConfig: vi.fn(),
+}));
+
+vi.mock("@/lib/summary", () => ({
+  summarizeMeeting: vi.fn(),
 }));
 
 const fakeMeeting = {
@@ -49,6 +53,11 @@ beforeEach(async () => {
   const { transcribeMeeting, onTranscriptionComplete } = await import("@/lib/transcription");
   vi.mocked(transcribeMeeting).mockReset().mockResolvedValue(undefined);
   vi.mocked(onTranscriptionComplete).mockReset().mockResolvedValue(() => {});
+
+  const { summarizeMeeting } = await import("@/lib/summary");
+  vi.mocked(summarizeMeeting)
+    .mockReset()
+    .mockResolvedValue({ summary: "Discussed the roadmap.", action_items: [] });
 
   const { getConfig } = await import("@/lib/config");
   vi.mocked(getConfig).mockReset().mockResolvedValue({
@@ -257,23 +266,12 @@ describe("RecorderWidget transcription integration", () => {
     );
   });
 
-  it("updates the current meeting ref and logs when transcription-complete fires", async () => {
-    const { onTranscriptionComplete } = await import("@/lib/transcription");
-    let firedCallback: ((meeting: MeetingMeta) => void) | undefined;
-    vi.mocked(onTranscriptionComplete).mockImplementation(async (callback) => {
-      firedCallback = callback;
-      return () => {};
-    });
-    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    render(<RecorderWidget />);
-    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
-    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
-    await vi.waitFor(() => expect(firedCallback).toBeDefined());
-    const updatedMeeting = { ...fakeMeeting, status: "Summarizing" as const };
-    firedCallback!(updatedMeeting);
-    await vi.waitFor(() => expect(consoleLogSpy).toHaveBeenCalledWith("Transcription complete", updatedMeeting));
-    consoleLogSpy.mockRestore();
-  });
+  // The former "updates the current meeting ref and logs when
+  // transcription-complete fires" test asserted the placeholder console.log
+  // that stood in for summary generation. That log is now a real
+  // summarizeMeeting call, and the ref update it checked is asserted
+  // observably by "calls summarizeMeeting with the meeting id from the
+  // transcription-complete event" below.
 
   it("surfaces a transcription error instead of hanging on Transcribing forever", async () => {
     const { transcribeMeeting } = await import("@/lib/transcription");
@@ -314,5 +312,100 @@ describe("RecorderWidget transcription integration", () => {
     // StrictMode invocation's listener must already be unsubscribed.
     const liveListeners = unlistenSpies.filter((spy) => spy.mock.calls.length === 0);
     expect(liveListeners).toHaveLength(1);
+  });
+});
+
+describe("RecorderWidget summary integration", () => {
+  // Registers the transcription-complete listener and hands back a trigger
+  // so a test can fire the event at the exact moment it wants, rather than
+  // racing the effect's async registration.
+  async function captureTranscriptionCallback() {
+    const { onTranscriptionComplete } = await import("@/lib/transcription");
+    let fire: ((meeting: MeetingMeta) => void) | undefined;
+    vi.mocked(onTranscriptionComplete).mockImplementation(async (callback) => {
+      fire = callback;
+      return () => {};
+    });
+    return {
+      fire: async (meeting: MeetingMeta) => {
+        await vi.waitFor(() => expect(fire).toBeDefined());
+        await act(async () => {
+          fire!(meeting);
+        });
+      },
+    };
+  }
+
+  const transcribedMeeting: MeetingMeta = {
+    ...fakeMeeting,
+    status: "Summarizing",
+    duration_seconds: 42,
+  };
+
+  it("switches the status to Generating summary once transcription completes", async () => {
+    const { summarizeMeeting } = await import("@/lib/summary");
+    // Leave the summary call pending so the intermediate status is
+    // observable instead of racing straight through to the done state.
+    vi.mocked(summarizeMeeting).mockImplementation(() => new Promise(() => {}));
+    const { fire } = await captureTranscriptionCallback();
+
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+
+    expect(await screen.findByText(/transcribing/i)).toBeInTheDocument();
+    await fire(transcribedMeeting);
+    expect(await screen.findByText(/generating summary/i)).toBeInTheDocument();
+  });
+
+  it("calls summarizeMeeting with the meeting id from the transcription-complete event", async () => {
+    const { summarizeMeeting } = await import("@/lib/summary");
+    const { fire } = await captureTranscriptionCallback();
+
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+    await fire(transcribedMeeting);
+
+    await vi.waitFor(() => expect(summarizeMeeting).toHaveBeenCalledWith(transcribedMeeting.id));
+  });
+
+  it("leaves the processing state once the summary resolves", async () => {
+    const { fire } = await captureTranscriptionCallback();
+
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+    await fire(transcribedMeeting);
+
+    // Asserts both processing labels are gone, not just the summary one:
+    // checking only "generating summary" would also pass while the widget
+    // sat stuck on "Transcribing…".
+    await vi.waitFor(() => {
+      expect(screen.queryByText(/generating summary/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/transcribing/i)).not.toBeInTheDocument();
+    });
+  });
+
+  // A failed summary must not wedge the widget in "Generating summary…"
+  // forever: the transcript is already on disk and is still worth showing,
+  // so the flow always resolves to the done state.
+  it("still leaves the processing state when the summary fails", async () => {
+    const { summarizeMeeting } = await import("@/lib/summary");
+    vi.mocked(summarizeMeeting).mockRejectedValue(new Error("not_configured"));
+    const { fire } = await captureTranscriptionCallback();
+
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+    await fire(transcribedMeeting);
+
+    // Asserts both processing labels are gone, not just the summary one:
+    // checking only "generating summary" would also pass while the widget
+    // sat stuck on "Transcribing…".
+    await vi.waitFor(() => {
+      expect(screen.queryByText(/generating summary/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/transcribing/i)).not.toBeInTheDocument();
+    });
   });
 });

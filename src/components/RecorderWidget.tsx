@@ -5,9 +5,11 @@ import { startRecording, stopRecording } from "@/lib/recording";
 import { createNewMeeting, getDataDir, updateMeetingStatus, type MeetingMeta } from "@/lib/storage";
 import { transcribeMeeting, onTranscriptionComplete } from "@/lib/transcription";
 import { getConfig } from "@/lib/config";
+import { summarizeMeeting, type SummaryResult } from "@/lib/summary";
 import { Waveform } from "@/components/Waveform";
 
 type WidgetState = "idle" | "recording" | "processing" | "done";
+type ProcessingStatus = "transcribing" | "summarizing";
 
 export function RecorderWidget() {
   const [state, setState] = useState<WidgetState>("idle");
@@ -17,6 +19,9 @@ export function RecorderWidget() {
   const [qualityWarning, setQualityWarning] = useState<string | null>(null);
   const [recordingError, setRecordingError] = useState<string | null>(null);
   const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
+  const [processingStatus, setProcessingStatus] = useState<ProcessingStatus>("transcribing");
+  const [summaryResult, setSummaryResult] = useState<SummaryResult | null>(null);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const currentMeetingRef = useRef<MeetingMeta | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -55,11 +60,26 @@ export function RecorderWidget() {
 
     let cancelled = false;
     let unlisten: (() => void) | undefined;
+    setProcessingStatus("transcribing");
     (async () => {
-      const stopListening = await onTranscriptionComplete((updated) => {
+      const stopListening = await onTranscriptionComplete(async (updated) => {
+        // An abandoned invocation's listener may still receive one event
+        // before its unsubscribe lands, so re-check here too: only the live
+        // invocation may drive the summary and the state transition.
+        if (cancelled) return;
         currentMeetingRef.current = updated;
-        // Summary generation wired in a later plan; for now just log.
-        console.log("Transcription complete", updated);
+        setProcessingStatus("summarizing");
+        try {
+          setSummaryResult(await summarizeMeeting(updated.id));
+        } catch (err) {
+          // The transcript is already on disk, so a summary failure is not
+          // data loss — record it and still move on to the done state
+          // rather than leaving the widget stuck on "Generating summary…".
+          console.error("Summary generation failed:", errorMessage(err));
+          setSummaryError(errorMessage(err));
+        } finally {
+          setState("done");
+        }
       });
       unlisten = stopListening;
       if (cancelled) {
@@ -219,16 +239,22 @@ export function RecorderWidget() {
             {transcriptionError}
           </span>
         ) : (
-          <span>Transcribing…</span>
+          <span>{processingStatus === "transcribing" ? "Transcribing…" : "Generating summary…"}</span>
         )}
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2 h-full overflow-y-auto text-sm">
       {qualityWarning && <span className="text-xs text-amber-600">{qualityWarning}</span>}
-      <span>Processing/Done placeholder (built in later plans)</span>
+      {summaryError ? (
+        <p className="text-xs text-muted-foreground">
+          Not generated — configure a provider to enable summaries.
+        </p>
+      ) : (
+        <p>{summaryResult?.summary}</p>
+      )}
     </div>
   );
 }
