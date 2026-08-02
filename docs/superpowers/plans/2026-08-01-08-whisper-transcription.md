@@ -1,6 +1,6 @@
 # Whisper.cpp Transcription Integration Implementation Plan
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Run whisper.cpp on the recorded `audio.wav` to produce `transcript.json` (timestamped segments) and `transcript.txt`, as an async Tauri command wired to the widget's Processing state.
 
@@ -21,7 +21,7 @@
 - Create: `crates/meeting-notes-transcription/src/tests.rs`
 - Modify: `crates/meeting-notes-transcription/Cargo.toml`
 
-- [ ] **Step 1: Define TranscriptSegment/TranscriptResult in core**
+- [x] **Step 1: Define TranscriptSegment/TranscriptResult in core**
 
 ```rust
 // crates/meeting-notes-core/src/transcript.rs
@@ -42,7 +42,7 @@ pub struct TranscriptResult {
 
 Register in `crates/meeting-notes-core/src/lib.rs`: `pub mod transcript;`
 
-- [ ] **Step 2: Write failing test for whisper.cpp invocation on a sample file**
+- [x] **Step 2: Write failing test for whisper.cpp invocation on a sample file**
 
 ```rust
 // crates/meeting-notes-transcription/src/tests.rs
@@ -60,12 +60,12 @@ fn transcribes_a_short_sample_wav() {
 
 Note: requires a `test-fixtures/hello.wav` sample file (a few seconds of clear speech saying "hello") added at the workspace root for this ignored test.
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `cargo test -p meeting-notes-transcription -- --ignored --nocapture`
 Expected: FAIL — `run_whisper` not defined.
 
-- [ ] **Step 4: Implement run_whisper**
+- [x] **Step 4: Implement run_whisper**
 
 ```rust
 // crates/meeting-notes-transcription/src/lib.rs
@@ -129,12 +129,12 @@ mod tests;
 
 This module is the crate root (`lib.rs`) — no separate registration needed. Add dependencies from within `crates/meeting-notes-transcription`: `cargo add serde_json` and `cargo add meeting-notes-core --path ../meeting-notes-core` (if not already present from plan 01 Task 1).
 
-- [ ] **Step 5: Run test on real hardware to verify it passes**
+- [x] **Step 5: Run test on real hardware to verify it passes**
 
 Run: `cargo test -p meeting-notes-transcription -- --ignored --nocapture` (with whisper.cpp binary and `base.en` model installed)
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add crates/meeting-notes-core/src crates/meeting-notes-transcription/src crates/meeting-notes-transcription/Cargo.toml
@@ -149,7 +149,7 @@ git commit -m "feat: add TranscriptSegment/TranscriptResult to core, run_whisper
 - Modify: `crates/meeting-notes-transcription/src/lib.rs`
 - Modify: `crates/meeting-notes-transcription/src/tests.rs`
 
-- [ ] **Step 1: Write failing test for saving transcript files**
+- [x] **Step 1: Write failing test for saving transcript files**
 
 ```rust
 #[test]
@@ -175,12 +175,12 @@ fn saves_transcript_json_and_txt() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test -p meeting-notes-transcription saves_transcript_json_and_txt -- --nocapture`
 Expected: FAIL — `save_transcript` not defined.
 
-- [ ] **Step 3: Implement save_transcript**
+- [x] **Step 3: Implement save_transcript**
 
 ```rust
 // crates/meeting-notes-transcription/src/lib.rs (additions)
@@ -201,12 +201,12 @@ pub fn save_transcript(meeting_dir: &Path, result: &TranscriptResult) -> std::io
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cargo test -p meeting-notes-transcription saves_transcript_json_and_txt -- --nocapture`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/meeting-notes-transcription/src
@@ -224,7 +224,7 @@ git commit -m "feat: persist transcript.json and transcript.txt to meeting direc
 - Create: `src/lib/transcription.ts`
 - Modify: `src/components/RecorderWidget.tsx`
 
-- [ ] **Step 1: Implement async command that emits progress events**
+- [x] **Step 1: Implement async command that emits progress events**
 
 ```rust
 // src-tauri/src/commands/transcription_commands.rs
@@ -264,7 +264,7 @@ pub async fn transcribe_meeting(
 
 Register `transcribe_meeting` in `generate_handler![]`.
 
-- [ ] **Step 2: Add TypeScript wrapper with event listener helper**
+- [x] **Step 2: Add TypeScript wrapper with event listener helper**
 
 ```ts
 // src/lib/transcription.ts
@@ -279,7 +279,7 @@ export const onTranscriptionComplete = (callback: (meeting: MeetingMeta) => void
   listen<MeetingMeta>("transcription-complete", (event) => callback(event.payload));
 ```
 
-- [ ] **Step 3: Wire into RecorderWidget's Processing state**
+- [x] **Step 3: Wire into RecorderWidget's Processing state**
 
 ```tsx
 // src/components/RecorderWidget.tsx (additions)
@@ -314,12 +314,12 @@ if (state === "processing") {
 }
 ```
 
-- [ ] **Step 4: Manual verification**
+- [x] **Step 4: Manual verification**
 
 Run: `bun run tauri dev`, record a short meeting, stop.
 Expected: widget shows "Transcribing…", and after whisper.cpp finishes, `meeting_dir/transcript.json` and `transcript.txt` exist, console logs the updated meeting with status `Summarizing`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/commands src-tauri/src/main.rs src/lib/transcription.ts src/components/RecorderWidget.tsx
