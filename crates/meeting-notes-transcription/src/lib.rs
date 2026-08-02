@@ -8,6 +8,13 @@ fn whisper_binary_path() -> String {
     std::env::var("MEETING_NOTES_WHISPER_BIN").unwrap_or_else(|_| "whisper-cli".to_string())
 }
 
+/// Runs whisper.cpp on `audio_path` using the given model name.
+///
+/// Resolves the model at the relative path `models/ggml-{model}.bin`, so the
+/// caller's process working directory must be `src-tauri/` (true for the app
+/// when launched via `bun run tauri dev`/the built binary). Callers running
+/// from elsewhere (e.g. tests invoked from a different crate directory) must
+/// `std::env::set_current_dir` into `src-tauri/` first.
 pub fn run_whisper(audio_path: &Path, model: &str) -> Result<TranscriptResult, String> {
     let model_path = format!("models/ggml-{model}.bin");
     let output_base = audio_path.with_extension(""); // whisper.cpp appends .json itself
