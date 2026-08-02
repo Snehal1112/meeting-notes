@@ -6,6 +6,11 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     pub claude_api_key: Option<String>,
     pub ollama_endpoint: Option<String>,
+    /// Name of the Ollama model to generate with, e.g. "gemma4:e2b". Which
+    /// models exist is per-machine (whatever the user has pulled), so this
+    /// has no universally correct value and falls back to the provider's
+    /// own default when unset.
+    pub ollama_model: Option<String>,
     pub whisper_model: Option<String>,
 }
 
@@ -14,6 +19,7 @@ impl Config {
         Config {
             claude_api_key: std::env::var("MEETING_NOTES_CLAUDE_API_KEY").ok(),
             ollama_endpoint: std::env::var("MEETING_NOTES_OLLAMA_ENDPOINT").ok(),
+            ollama_model: std::env::var("MEETING_NOTES_OLLAMA_MODEL").ok(),
             whisper_model: std::env::var("MEETING_NOTES_WHISPER_MODEL").ok(),
         }
     }
@@ -22,6 +28,7 @@ impl Config {
     pub fn merge(mut self, other: Config) -> Config {
         self.claude_api_key = self.claude_api_key.or(other.claude_api_key);
         self.ollama_endpoint = self.ollama_endpoint.or(other.ollama_endpoint);
+        self.ollama_model = self.ollama_model.or(other.ollama_model);
         self.whisper_model = self.whisper_model.or(other.whisper_model);
         self
     }

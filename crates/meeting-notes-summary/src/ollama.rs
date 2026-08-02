@@ -10,7 +10,7 @@ Keep the summary to 3-5 sentences. Extract action items as short imperative phra
 /// Model used when the config does not name one. Kept generic on purpose:
 /// whichever model the user has pulled locally is their choice, and this is
 /// only the fallback.
-const DEFAULT_MODEL: &str = "llama3";
+pub const DEFAULT_MODEL: &str = "llama3";
 
 /// Hard cap on how long a single Ollama call is allowed to hang, mirroring
 /// the same protection on the Claude provider. It is much longer than
@@ -38,6 +38,12 @@ impl OllamaProvider {
             model: model.unwrap_or_else(|| DEFAULT_MODEL.to_string()),
             client,
         }
+    }
+
+    /// The model this provider will generate with, after the default has
+    /// been applied.
+    pub fn model(&self) -> &str {
+        &self.model
     }
 }
 

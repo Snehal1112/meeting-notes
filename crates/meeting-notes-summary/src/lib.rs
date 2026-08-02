@@ -33,7 +33,7 @@ pub fn build_provider(config: &Config) -> Option<Box<dyn SummaryProvider + Send 
         ))),
         ProviderKind::Ollama => Some(Box::new(ollama::OllamaProvider::new(
             config.ollama_endpoint.clone().unwrap(),
-            None,
+            config.ollama_model.clone(),
         ))),
     }
 }

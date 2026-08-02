@@ -10,6 +10,19 @@ fn parses_valid_ollama_json_response() {
 }
 
 #[test]
+fn uses_the_configured_model_when_one_is_given() {
+    let provider =
+        ollama::OllamaProvider::new("http://localhost:11434".into(), Some("gemma4:e2b".into()));
+    assert_eq!(provider.model(), "gemma4:e2b");
+}
+
+#[test]
+fn falls_back_to_the_default_model_when_none_is_configured() {
+    let provider = ollama::OllamaProvider::new("http://localhost:11434".into(), None);
+    assert_eq!(provider.model(), ollama::DEFAULT_MODEL);
+}
+
+#[test]
 fn returns_error_on_malformed_json() {
     assert!(ollama::parse_summary_response("not json at all").is_err());
 }

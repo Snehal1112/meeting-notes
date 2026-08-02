@@ -19,6 +19,7 @@ const WHISPER_MODELS = ["tiny.en", "base.en", "small.en"];
 export function ConfigDialog({ open, onSave, onSkip }: ConfigDialogProps) {
   const [claudeApiKey, setClaudeApiKey] = useState("");
   const [ollamaEndpoint, setOllamaEndpoint] = useState("");
+  const [ollamaModel, setOllamaModel] = useState("");
   const [whisperModel, setWhisperModel] = useState("base.en");
 
   if (!open) return null;
@@ -27,6 +28,7 @@ export function ConfigDialog({ open, onSave, onSkip }: ConfigDialogProps) {
     onSave({
       claude_api_key: claudeApiKey || null,
       ollama_endpoint: ollamaEndpoint || null,
+      ollama_model: ollamaModel || null,
       whisper_model: whisperModel,
     });
   };
@@ -56,6 +58,17 @@ export function ConfigDialog({ open, onSave, onSkip }: ConfigDialogProps) {
             value={ollamaEndpoint}
             onChange={(e) => setOllamaEndpoint(e.target.value)}
             placeholder="http://localhost:11434"
+          />
+        </div>
+        <div>
+          <label htmlFor="ollama-model" className="text-xs text-muted-foreground">
+            Ollama model (optional)
+          </label>
+          <Input
+            id="ollama-model"
+            value={ollamaModel}
+            onChange={(e) => setOllamaModel(e.target.value)}
+            placeholder="llama3"
           />
         </div>
         <div>

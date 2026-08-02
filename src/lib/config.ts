@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 export interface AppConfig {
   claude_api_key: string | null;
   ollama_endpoint: string | null;
+  ollama_model: string | null;
   whisper_model: string | null;
 }
 

@@ -54,6 +54,7 @@ beforeEach(async () => {
   vi.mocked(getConfig).mockReset().mockResolvedValue({
     claude_api_key: null,
     ollama_endpoint: null,
+    ollama_model: null,
     whisper_model: "base.en",
   });
 });
@@ -196,6 +197,7 @@ describe("RecorderWidget transcription integration", () => {
     vi.mocked(getConfig).mockResolvedValue({
       claude_api_key: null,
       ollama_endpoint: null,
+      ollama_model: null,
       whisper_model: "small.en",
     });
     render(<RecorderWidget />);
@@ -244,6 +246,7 @@ describe("RecorderWidget transcription integration", () => {
     vi.mocked(getConfig).mockResolvedValue({
       claude_api_key: null,
       ollama_endpoint: null,
+      ollama_model: null,
       whisper_model: null,
     });
     render(<RecorderWidget />);
