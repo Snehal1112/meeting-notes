@@ -140,14 +140,18 @@ export function RecorderWidget() {
           status: "Transcribing",
           duration_seconds: elapsedSeconds,
         };
+        // Update the in-memory ref immediately — before the persist even
+        // starts, not after it resolves. The transcription effect above is
+        // scheduled by the setState("processing") call right above this
+        // block and may read this ref before updateMeetingStatus's IPC call
+        // resolves; the ref represents intent and must not depend on the
+        // persist succeeding or winning a timing race. If the IPC call below
+        // fails, the ref still holds these correct values, and the later
+        // transcribe_meeting Rust call's full-record replace will simply
+        // re-persist them.
+        currentMeetingRef.current = transcribing;
         try {
           await updateMeetingStatus(transcribing);
-          // Keep the in-memory ref in sync with what was just persisted —
-          // otherwise the transcription effect below would read the stale
-          // pre-stop object (status "Recording", duration_seconds null) and
-          // hand it to transcribe_meeting, which does a full-record replace
-          // in the index and would silently undo this update.
-          currentMeetingRef.current = transcribing;
         } catch (err) {
           console.error("Failed to update meeting status in index:", errorMessage(err));
         }
