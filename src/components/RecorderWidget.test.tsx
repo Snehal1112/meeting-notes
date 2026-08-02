@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { RecorderWidget } from "./RecorderWidget";
 
@@ -12,5 +12,15 @@ describe("RecorderWidget idle state", () => {
     render(<RecorderWidget />);
     expect(screen.getByPlaceholderText(/meeting title/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /start recording/i })).toBeInTheDocument();
+  });
+});
+
+describe("RecorderWidget recording state", () => {
+  it("calls startRecording and shows the recording state on Start click", async () => {
+    const { startRecording } = await import("@/lib/recording");
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    expect(startRecording).toHaveBeenCalled();
+    expect(await screen.findByRole("button", { name: /stop recording/i })).toBeInTheDocument();
   });
 });
