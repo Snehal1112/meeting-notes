@@ -1,6 +1,6 @@
 # LLM Provider Abstraction + Claude API Implementation Plan
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Define a `SummaryProvider` trait and implement it against the Claude API, producing a `{ summary, action_items }` result from a transcript.
 
@@ -18,7 +18,7 @@
 - Modify: `crates/meeting-notes-core/Cargo.toml`
 - Create: `crates/meeting-notes-core/src/summary_tests.rs`
 
-- [ ] **Step 1: Write failing test using a mock provider**
+- [x] **Step 1: Write failing test using a mock provider**
 
 ```rust
 // crates/meeting-notes-core/src/summary_tests.rs
@@ -46,12 +46,12 @@ async fn mock_provider_returns_summary_result() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test -p meeting-notes-core summary -- --nocapture`
 Expected: FAIL — `SummaryProvider` trait and `SummaryResult` not defined. Add dependencies from within `crates/meeting-notes-core`: `cargo add async-trait` and `cargo add --dev tokio --features full`.
 
-- [ ] **Step 3: Define the trait and result struct**
+- [x] **Step 3: Define the trait and result struct**
 
 ```rust
 // crates/meeting-notes-core/src/summary.rs
@@ -72,12 +72,12 @@ pub trait SummaryProvider {
 
 Register in `crates/meeting-notes-core/src/lib.rs`: `pub mod summary;` and `#[cfg(test)] mod summary_tests;`
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cargo test -p meeting-notes-core summary -- --nocapture`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/meeting-notes-core/src crates/meeting-notes-core/Cargo.toml
@@ -94,7 +94,7 @@ git commit -m "feat: define SummaryProvider trait and SummaryResult struct in co
 - Modify: `crates/meeting-notes-summary/Cargo.toml`
 - Create: `crates/meeting-notes-summary/src/claude_tests.rs`
 
-- [ ] **Step 1: Write failing test for JSON response parsing (no network call)**
+- [x] **Step 1: Write failing test for JSON response parsing (no network call)**
 
 ```rust
 // crates/meeting-notes-summary/src/claude_tests.rs
@@ -117,12 +117,12 @@ fn returns_error_on_malformed_json() {
 
 Register `pub mod claude;` and `#[cfg(test)] mod claude_tests;` in `crates/meeting-notes-summary/src/lib.rs`.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test -p meeting-notes-summary -- --nocapture`
 Expected: FAIL — `claude::parse_summary_response` not defined.
 
-- [ ] **Step 3: Implement ClaudeProvider**
+- [x] **Step 3: Implement ClaudeProvider**
 
 ```rust
 // crates/meeting-notes-summary/src/claude.rs
@@ -190,12 +190,12 @@ impl SummaryProvider for ClaudeProvider {
 
 Add dependencies from within `crates/meeting-notes-summary`: `cargo add reqwest --features json`, `cargo add async-trait serde_json`, and `cargo add meeting-notes-core --path ../meeting-notes-core` (if not already present from plan 01 Task 1).
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cargo test -p meeting-notes-summary -- --nocapture`
 Expected: PASS (parsing tests need no network; leave a `#[tokio::test] #[ignore]` real-network test as a manual verification step, not part of the automated suite)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/meeting-notes-summary/src crates/meeting-notes-summary/Cargo.toml
@@ -212,7 +212,7 @@ git commit -m "feat: implement ClaudeProvider for summary generation"
 - Modify: `src-tauri/src/main.rs`
 - Create: `src/lib/summary.ts`
 
-- [ ] **Step 1: Implement summarize_meeting command**
+- [x] **Step 1: Implement summarize_meeting command**
 
 ```rust
 // src-tauri/src/commands/summary_commands.rs
@@ -246,7 +246,7 @@ pub async fn summarize_meeting(
         format!(
             "{}\n\n## Action Items\n{}",
             result.summary,
-            result.action_items.iter().map(|i| format!("- [ ] {i}")).collect::<Vec<_>>().join("\n")
+            result.action_items.iter().map(|i| format!("- [x] {i}")).collect::<Vec<_>>().join("\n")
         ),
     )
     .map_err(|e| e.to_string())?;
@@ -274,7 +274,7 @@ pub async fn summarize_meeting(
 
 Register `summarize_meeting` in `generate_handler![]`.
 
-- [ ] **Step 2: Add TypeScript wrapper**
+- [x] **Step 2: Add TypeScript wrapper**
 
 ```ts
 // src/lib/summary.ts
@@ -290,12 +290,12 @@ export const summarizeMeeting = (meeting: MeetingMeta) =>
   invoke<SummaryResult>("summarize_meeting", { meeting });
 ```
 
-- [ ] **Step 3: Manual verification**
+- [x] **Step 3: Manual verification**
 
 With a valid `MEETING_NOTES_CLAUDE_API_KEY` set, run `bun run tauri dev`, record and transcribe a short meeting, then call `summarizeMeeting(meeting)` from devtools console with the meeting object logged in plan 08's step 3.
 Expected: returns `{ summary, action_items }`; `summary.md` and `action_items.json` appear in the meeting directory.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src-tauri/src/commands/summary_commands.rs src-tauri/src/main.rs src/lib/summary.ts
