@@ -1,5 +1,5 @@
 use meeting_notes_core::meeting::{MeetingMeta, MeetingStatus};
-use meeting_notes_storage::{base_dir, update_meeting};
+use meeting_notes_storage::{base_dir, load_index, update_meeting};
 use meeting_notes_transcription::{run_whisper, save_transcript};
 use std::path::Path;
 use tauri::{AppHandle, Emitter};
@@ -29,6 +29,31 @@ pub async fn transcribe_meeting(
             Err(e)
         }
     }
+}
+
+/// Returns the saved plain-text transcript for a meeting, so the widget's
+/// transcript tab can display it without the frontend needing filesystem
+/// access.
+#[tauri::command]
+pub fn read_transcript_text(meeting_id: String) -> Result<String, String> {
+    let base = base_dir().ok_or("could not resolve data directory")?;
+    read_transcript_for_meeting(&base, &meeting_id)
+}
+
+/// Looks the meeting up in the index by id and reads its `transcript.txt`.
+/// Split out from the command so it can be unit tested against a temporary
+/// data directory. Takes an id rather than a client-supplied `MeetingMeta`
+/// for the same reason `summarize_meeting` does: the server should trust its
+/// own copy of the record.
+fn read_transcript_for_meeting(base: &Path, meeting_id: &str) -> Result<String, String> {
+    let index = load_index(base).map_err(|e| e.to_string())?;
+    let meeting = index
+        .into_iter()
+        .find(|m| m.id == meeting_id)
+        .ok_or_else(|| format!("meeting {meeting_id} not found"))?;
+
+    std::fs::read_to_string(meeting.dir_path(base).join("transcript.txt"))
+        .map_err(|e| format!("could not read transcript: {e}"))
 }
 
 /// Runs whisper.cpp on the meeting's audio, persists the transcript, and
@@ -72,7 +97,7 @@ fn mark_meeting_failed(base: &Path, mut meeting: MeetingMeta) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use meeting_notes_storage::{append_to_index, create_meeting, load_index};
+    use meeting_notes_storage::{append_to_index, create_meeting};
     use std::path::PathBuf;
 
     fn temp_base(name: &str) -> PathBuf {
@@ -85,6 +110,48 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).expect("create temp base dir");
         dir
+    }
+
+    #[test]
+    fn read_transcript_for_meeting_returns_the_saved_transcript_text() {
+        let base = temp_base("reads-transcript");
+        let meeting = create_meeting(&base, "Test meeting").expect("create meeting");
+        append_to_index(&base, &meeting).expect("append to index");
+        std::fs::write(
+            meeting.dir_path(&base).join("transcript.txt"),
+            "Alice: Let's ship on Friday.",
+        )
+        .expect("write transcript");
+
+        let text = read_transcript_for_meeting(&base, &meeting.id).expect("read transcript");
+        assert_eq!(text, "Alice: Let's ship on Friday.");
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn read_transcript_for_meeting_errors_when_the_meeting_is_not_in_the_index() {
+        let base = temp_base("transcript-missing-meeting");
+        let meeting = create_meeting(&base, "Test meeting").expect("create meeting");
+        append_to_index(&base, &meeting).expect("append to index");
+
+        assert!(read_transcript_for_meeting(&base, "nonexistent-id").is_err());
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn read_transcript_for_meeting_errors_when_no_transcript_was_written() {
+        // Transcription failed or never ran, so transcript.txt is absent.
+        // That must surface as an error rather than an empty transcript,
+        // which the UI would render as a blank but valid transcript tab.
+        let base = temp_base("transcript-missing-file");
+        let meeting = create_meeting(&base, "Test meeting").expect("create meeting");
+        append_to_index(&base, &meeting).expect("append to index");
+
+        assert!(read_transcript_for_meeting(&base, &meeting.id).is_err());
+
+        std::fs::remove_dir_all(&base).ok();
     }
 
     #[test]

@@ -3,11 +3,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { startRecording, stopRecording } from "@/lib/recording";
 import { createNewMeeting, getDataDir, updateMeetingStatus, type MeetingMeta } from "@/lib/storage";
-import { transcribeMeeting, onTranscriptionComplete } from "@/lib/transcription";
+import { transcribeMeeting, readTranscriptText, onTranscriptionComplete } from "@/lib/transcription";
 import { getConfig } from "@/lib/config";
 import { summarizeMeeting, type SummaryResult } from "@/lib/summary";
 import { Waveform } from "@/components/Waveform";
 import { ActionItemsList, type ActionItem } from "@/components/ActionItemsList";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 type WidgetState = "idle" | "recording" | "processing" | "done";
 type ProcessingStatus = "transcribing" | "summarizing";
@@ -24,6 +25,7 @@ export function RecorderWidget() {
   const [summaryResult, setSummaryResult] = useState<SummaryResult | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [actionItems, setActionItems] = useState<ActionItem[]>([]);
+  const [transcriptText, setTranscriptText] = useState("");
   const [busy, setBusy] = useState(false);
   const currentMeetingRef = useRef<MeetingMeta | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -71,6 +73,18 @@ export function RecorderWidget() {
         if (cancelled) return;
         currentMeetingRef.current = updated;
         setProcessingStatus("summarizing");
+
+        // Fetched here rather than in the done state so the transcript tab
+        // has content the moment it is first opened. A failure is left as an
+        // empty string, which the tab renders as "Transcript unavailable." —
+        // it must not block the summary below.
+        try {
+          setTranscriptText(await readTranscriptText(updated.id));
+        } catch (err) {
+          console.error("Could not read transcript:", errorMessage(err));
+          setTranscriptText("");
+        }
+
         try {
           const result = await summarizeMeeting(updated.id);
           setSummaryResult(result);
@@ -128,6 +142,7 @@ export function RecorderWidget() {
     setSummaryResult(null);
     setSummaryError(null);
     setActionItems([]);
+    setTranscriptText("");
     try {
       const meeting = await createNewMeeting(title);
       currentMeetingRef.current = meeting;
@@ -265,21 +280,36 @@ export function RecorderWidget() {
   }
 
   return (
-    <div className="flex flex-col gap-3 h-full overflow-y-auto text-sm">
+    <div className="flex flex-col gap-2 h-full text-sm">
       {qualityWarning && <span className="text-xs text-amber-600">{qualityWarning}</span>}
-      {summaryError ? (
-        <p className="text-xs text-muted-foreground">
-          Not generated — configure a provider to enable summaries.
-        </p>
-      ) : (
-        <>
-          <p>{summaryResult?.summary}</p>
+      <Tabs defaultValue="summary" className="flex-1 flex flex-col overflow-hidden">
+        <TabsList className="grid grid-cols-3">
+          <TabsTrigger value="summary">Summary</TabsTrigger>
+          <TabsTrigger value="actions">Action Items</TabsTrigger>
+          <TabsTrigger value="transcript">Transcript</TabsTrigger>
+        </TabsList>
+        <TabsContent value="summary" className="overflow-y-auto flex-1">
+          {summaryError ? (
+            <p className="text-xs text-muted-foreground">
+              Not generated — configure a provider to enable summaries.
+            </p>
+          ) : (
+            <p>{summaryResult?.summary}</p>
+          )}
+        </TabsContent>
+        <TabsContent value="actions" className="overflow-y-auto flex-1">
           <ActionItemsList items={actionItems} onToggle={toggleActionItem} />
-        </>
-      )}
-      <div className="flex gap-2 mt-auto">
+        </TabsContent>
+        <TabsContent value="transcript" className="overflow-y-auto flex-1 text-xs">
+          {transcriptText || "Transcript unavailable."}
+        </TabsContent>
+      </Tabs>
+      <div className="flex gap-2">
         <Button variant="outline" size="sm" onClick={() => setState("idle")}>
           New Recording
+        </Button>
+        <Button size="sm" onClick={() => setState("idle")}>
+          Save &amp; Close
         </Button>
       </div>
     </div>

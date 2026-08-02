@@ -1,5 +1,6 @@
 import { StrictMode } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { RecorderWidget } from "./RecorderWidget";
 import type { MeetingMeta } from "@/lib/storage";
@@ -18,6 +19,7 @@ vi.mock("@/lib/storage", () => ({
 
 vi.mock("@/lib/transcription", () => ({
   transcribeMeeting: vi.fn(),
+  readTranscriptText: vi.fn(),
   onTranscriptionComplete: vi.fn(),
 }));
 
@@ -50,8 +52,11 @@ beforeEach(async () => {
   vi.mocked(updateMeetingStatus).mockReset().mockResolvedValue(undefined);
   vi.mocked(getDataDir).mockReset().mockResolvedValue("/home/user/.local/share/meeting-notes");
 
-  const { transcribeMeeting, onTranscriptionComplete } = await import("@/lib/transcription");
+  const { transcribeMeeting, readTranscriptText, onTranscriptionComplete } = await import(
+    "@/lib/transcription"
+  );
   vi.mocked(transcribeMeeting).mockReset().mockResolvedValue(undefined);
+  vi.mocked(readTranscriptText).mockReset().mockResolvedValue("Alice: Let's ship on Friday.");
   vi.mocked(onTranscriptionComplete).mockReset().mockResolvedValue(() => {});
 
   const { summarizeMeeting } = await import("@/lib/summary");
@@ -440,7 +445,8 @@ describe("RecorderWidget done state", () => {
     });
 
     expect(await screen.findByText(/discussed the q3 roadmap/i)).toBeInTheDocument();
-    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
+    await userEvent.click(screen.getByRole("tab", { name: /action items/i }));
+    expect(await screen.findAllByRole("checkbox")).toHaveLength(2);
   });
 
   it("checks an action item when its checkbox is clicked", async () => {
@@ -449,9 +455,10 @@ describe("RecorderWidget done state", () => {
       action_items: ["Send follow-up email"],
     });
 
+    await userEvent.click(await screen.findByRole("tab", { name: /action items/i }));
     const checkbox = await screen.findByRole("checkbox");
     expect(checkbox).not.toBeChecked();
-    fireEvent.click(checkbox);
+    await userEvent.click(checkbox);
     await vi.waitFor(() => expect(checkbox).toBeChecked());
   });
 
@@ -459,6 +466,71 @@ describe("RecorderWidget done state", () => {
     await completeAFlowWith({ summary: "Discussed the Q3 roadmap.", action_items: [] });
 
     fireEvent.click(await screen.findByRole("button", { name: /new recording/i }));
+    expect(await screen.findByRole("button", { name: /start recording/i })).toBeInTheDocument();
+  });
+});
+
+describe("RecorderWidget done state tabs", () => {
+  async function completeAFlow() {
+    const { onTranscriptionComplete } = await import("@/lib/transcription");
+    const { summarizeMeeting } = await import("@/lib/summary");
+    let fire: ((meeting: MeetingMeta) => void) | undefined;
+    vi.mocked(onTranscriptionComplete).mockImplementation(async (callback) => {
+      fire = callback;
+      return () => {};
+    });
+    vi.mocked(summarizeMeeting).mockResolvedValue({
+      summary: "Discussed the Q3 roadmap.",
+      action_items: ["Send follow-up email"],
+    });
+
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+    await vi.waitFor(() => expect(fire).toBeDefined());
+    await act(async () => {
+      fire!({ ...fakeMeeting, status: "Summarizing" });
+    });
+  }
+
+  it("shows the summary tab first", async () => {
+    await completeAFlow();
+    expect(await screen.findByRole("tab", { name: /summary/i })).toBeInTheDocument();
+    expect(await screen.findByText(/discussed the q3 roadmap/i)).toBeInTheDocument();
+  });
+
+  it("shows the action items checklist on the Action Items tab", async () => {
+    await completeAFlow();
+    await userEvent.click(await screen.findByRole("tab", { name: /action items/i }));
+    expect(await screen.findByRole("checkbox")).toBeInTheDocument();
+    expect(screen.getByText(/send follow-up email/i)).toBeInTheDocument();
+  });
+
+  it("shows the fetched transcript text on the Transcript tab", async () => {
+    await completeAFlow();
+    await userEvent.click(await screen.findByRole("tab", { name: /transcript/i }));
+    expect(await screen.findByText(/alice: let's ship on friday/i)).toBeInTheDocument();
+  });
+
+  it("fetches the transcript for the meeting from the transcription-complete event", async () => {
+    const { readTranscriptText } = await import("@/lib/transcription");
+    await completeAFlow();
+    await vi.waitFor(() => expect(readTranscriptText).toHaveBeenCalledWith(fakeMeeting.id));
+  });
+
+  // A missing or unreadable transcript.txt must not blank the tab with no
+  // explanation, and must not stop the summary from being shown.
+  it("falls back to a placeholder when the transcript cannot be read", async () => {
+    const { readTranscriptText } = await import("@/lib/transcription");
+    vi.mocked(readTranscriptText).mockRejectedValue(new Error("could not read transcript"));
+    await completeAFlow();
+    await userEvent.click(await screen.findByRole("tab", { name: /transcript/i }));
+    expect(await screen.findByText(/transcript unavailable/i)).toBeInTheDocument();
+  });
+
+  it("returns to idle when Save & Close is clicked", async () => {
+    await completeAFlow();
+    fireEvent.click(await screen.findByRole("button", { name: /save & close/i }));
     expect(await screen.findByRole("button", { name: /start recording/i })).toBeInTheDocument();
   });
 });
