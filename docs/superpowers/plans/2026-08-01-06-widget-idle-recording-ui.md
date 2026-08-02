@@ -1,6 +1,6 @@
 # Widget UI — Idle & Recording States Implementation Plan
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Build the Idle state (title input + Start button) and Recording state (live waveform, elapsed timer, Stop button) of the floating widget, wired to the recording commands from plans 04/05.
 
@@ -17,7 +17,7 @@
 - Create: `src/components/RecorderWidget.test.tsx`
 - Modify: `src/App.tsx`
 
-- [ ] **Step 1: Write failing test for idle state**
+- [x] **Step 1: Write failing test for idle state**
 
 ```tsx
 // src/components/RecorderWidget.test.tsx
@@ -39,12 +39,12 @@ describe("RecorderWidget idle state", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `bun run test -- RecorderWidget`
 Expected: FAIL — `RecorderWidget` doesn't exist.
 
-- [ ] **Step 3: Implement idle state**
+- [x] **Step 3: Implement idle state**
 
 ```tsx
 // src/components/RecorderWidget.tsx
@@ -75,16 +75,16 @@ export function RecorderWidget() {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `bun run test -- RecorderWidget`
 Expected: PASS
 
-- [ ] **Step 5: Mount in App.tsx**
+- [x] **Step 5: Mount in App.tsx**
 
 Replace the placeholder `{/* widget content */}` div in `src/App.tsx` with `<RecorderWidget />`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/components/RecorderWidget.tsx src/components/RecorderWidget.test.tsx src/App.tsx
@@ -99,7 +99,7 @@ git commit -m "feat: add idle state to recorder widget"
 - Modify: `src/components/RecorderWidget.tsx`
 - Modify: `src/components/RecorderWidget.test.tsx`
 
-- [ ] **Step 1: Write failing test for start → recording transition**
+- [x] **Step 1: Write failing test for start → recording transition**
 
 ```tsx
 it("calls startRecording and shows the recording state on Start click", async () => {
@@ -111,12 +111,12 @@ it("calls startRecording and shows the recording state on Start click", async ()
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `bun run test -- RecorderWidget`
 Expected: FAIL — Start button doesn't call `startRecording` yet.
 
-- [ ] **Step 3: Implement recording state with elapsed timer**
+- [x] **Step 3: Implement recording state with elapsed timer**
 
 ```tsx
 // src/components/RecorderWidget.tsx (rewrite)
@@ -209,12 +209,12 @@ async function meetingsBaseDir(): Promise<string> {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `bun run test -- RecorderWidget`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/RecorderWidget.tsx src/components/RecorderWidget.test.tsx
@@ -230,7 +230,7 @@ git commit -m "feat: wire recording state to backend with elapsed timer"
 - Create: `src/components/Waveform.test.tsx`
 - Modify: `src/components/RecorderWidget.tsx`
 
-- [ ] **Step 1: Write failing test that Waveform renders a canvas**
+- [x] **Step 1: Write failing test that Waveform renders a canvas**
 
 ```tsx
 // src/components/Waveform.test.tsx
@@ -246,12 +246,12 @@ describe("Waveform", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `bun run test -- Waveform`
 Expected: FAIL — `Waveform` doesn't exist.
 
-- [ ] **Step 3: Implement Waveform using AnalyserNode**
+- [x] **Step 3: Implement Waveform using AnalyserNode**
 
 ```tsx
 // src/components/Waveform.tsx
@@ -315,12 +315,12 @@ export function Waveform({ active }: WaveformProps) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `bun run test -- Waveform`
 Expected: PASS
 
-- [ ] **Step 5: Mount Waveform in the recording state view**
+- [x] **Step 5: Mount Waveform in the recording state view**
 
 ```tsx
 // src/components/RecorderWidget.tsx (inside the "recording" state return block, above the timer)
@@ -329,12 +329,12 @@ Expected: PASS
 
 Add the import: `import { Waveform } from "@/components/Waveform";`
 
-- [ ] **Step 6: Manual verification**
+- [x] **Step 6: Manual verification**
 
 Run: `bun run tauri dev`, click Start Recording, speak into the mic.
 Expected: dot-based waveform reacts visually to voice, matching the reference image's style.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/components/Waveform.tsx src/components/Waveform.test.tsx src/components/RecorderWidget.tsx
