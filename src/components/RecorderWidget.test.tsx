@@ -652,3 +652,42 @@ describe("RecorderWidget summary failure fallback", () => {
     consoleErrorSpy.mockRestore();
   });
 });
+
+describe("RecorderWidget resuming an interrupted recording", () => {
+  const interrupted: MeetingMeta = {
+    ...fakeMeeting,
+    id: "2026-08-02_090000_standup",
+    title: "Standup",
+    status: "Recording",
+  };
+
+  it("jumps straight to processing when given a meeting to resume", async () => {
+    render(<RecorderWidget resumeMeeting={interrupted} />);
+    expect(await screen.findByText(/transcribing/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /start recording/i })).not.toBeInTheDocument();
+  });
+
+  it("transcribes the resumed meeting, not a newly created one", async () => {
+    const { transcribeMeeting } = await import("@/lib/transcription");
+    const { createNewMeeting } = await import("@/lib/storage");
+
+    render(<RecorderWidget resumeMeeting={interrupted} />);
+
+    await vi.waitFor(() =>
+      expect(transcribeMeeting).toHaveBeenCalledWith(
+        expect.objectContaining({ id: interrupted.id }),
+        "base.en"
+      )
+    );
+    // Resuming reuses the existing meeting directory and its partial
+    // audio.wav; creating a new meeting would orphan that recording.
+    expect(createNewMeeting).not.toHaveBeenCalled();
+  });
+
+  it("starts in the idle state when there is nothing to resume", async () => {
+    const { transcribeMeeting } = await import("@/lib/transcription");
+    render(<RecorderWidget resumeMeeting={null} />);
+    expect(screen.getByRole("button", { name: /start recording/i })).toBeInTheDocument();
+    expect(transcribeMeeting).not.toHaveBeenCalled();
+  });
+});

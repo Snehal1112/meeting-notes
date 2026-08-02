@@ -13,7 +13,13 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 type WidgetState = "idle" | "recording" | "processing" | "done";
 type ProcessingStatus = "transcribing" | "summarizing";
 
-export function RecorderWidget() {
+interface RecorderWidgetProps {
+  /// An interrupted recording from a previous session to pick up, as offered
+  /// by the launch-time ResumePrompt. Null when there is nothing to resume.
+  resumeMeeting?: MeetingMeta | null;
+}
+
+export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {}) {
   const [state, setState] = useState<WidgetState>("idle");
   const [title, setTitle] = useState("");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -52,6 +58,16 @@ export function RecorderWidget() {
   // transcription failure here must not look like data loss — it's surfaced
   // via transcriptionError instead of leaving the widget stuck silently.
   //
+  // Picking up an interrupted recording skips straight to processing: its
+  // partial audio.wav is already on disk, so the only work left is
+  // transcription onwards. The ref must be assigned before the state change
+  // so the processing effect below sees the meeting on its first run.
+  useEffect(() => {
+    if (!resumeMeeting) return;
+    currentMeetingRef.current = resumeMeeting;
+    setState("processing");
+  }, [resumeMeeting]);
+
   // Kicks off whisper.cpp for the current meeting. Shared by the processing
   // effect below and the Retry button, so a retry re-runs the exact same
   // path. `isCancelled` lets the effect abandon its own invocation without
