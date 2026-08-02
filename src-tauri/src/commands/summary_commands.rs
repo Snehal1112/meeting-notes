@@ -2,7 +2,7 @@ use meeting_notes_core::config::resolve_config;
 use meeting_notes_core::meeting::{MeetingMeta, MeetingStatus};
 use meeting_notes_core::summary::{SummaryProvider, SummaryResult};
 use meeting_notes_storage::{base_dir, load_index, update_meeting};
-use meeting_notes_summary::claude::ClaudeProvider;
+use meeting_notes_summary::build_provider;
 use std::path::Path;
 use tauri::{AppHandle, Emitter};
 
@@ -17,11 +17,11 @@ pub async fn summarize_meeting(app: AppHandle, meeting_id: String) -> Result<Sum
     // entering run_summarize_or_mark_failed's failure-marking wrapper, so
     // this error path never touches the meeting's status in the index.
     let config = resolve_config();
-    let Some(api_key) = config.claude_api_key else {
-        return Err("no_provider_configured".to_string());
+    let Some(provider) = build_provider(&config) else {
+        return Err("not_configured".to_string());
     };
 
-    let (result, updated) = run_summarize_or_mark_failed(&base, meeting, api_key).await?;
+    let (result, updated) = run_summarize_or_mark_failed(&base, meeting, provider).await?;
     app.emit("summary-complete", &updated)
         .map_err(|e| e.to_string())?;
     Ok(result)
@@ -34,13 +34,13 @@ pub async fn summarize_meeting(app: AppHandle, meeting_id: String) -> Result<Sum
 async fn run_summarize_or_mark_failed(
     base: &Path,
     meeting: MeetingMeta,
-    api_key: String,
+    provider: Box<dyn SummaryProvider + Send + Sync>,
 ) -> Result<(SummaryResult, MeetingMeta), String> {
-    match run_summarize(base, meeting.clone(), api_key).await {
+    match run_summarize(base, meeting.clone(), provider).await {
         Ok(ok) => Ok(ok),
         Err(e) => {
             // Don't leave the meeting stuck at "Summarizing" forever if the
-            // transcript read, the Claude API call, a file write, or the
+            // transcript read, the provider call, a file write, or the
             // index update itself failed — best-effort mark it Failed
             // instead. Mirrors the fire-and-log pattern already used in
             // transcription_commands.rs's transcribe_meeting: a failure here
@@ -51,19 +51,18 @@ async fn run_summarize_or_mark_failed(
     }
 }
 
-/// Reads the transcript, calls the Claude provider, writes the summary
+/// Reads the transcript, calls the selected provider, writes the summary
 /// files, and marks the meeting Done in the index. Returns the summary
 /// result and the updated meeting on success.
 async fn run_summarize(
     base: &Path,
     meeting: MeetingMeta,
-    api_key: String,
+    provider: Box<dyn SummaryProvider + Send + Sync>,
 ) -> Result<(SummaryResult, MeetingMeta), String> {
     let meeting_dir = meeting.dir_path(base);
     let transcript = std::fs::read_to_string(meeting_dir.join("transcript.txt"))
         .map_err(|e| format!("could not read transcript: {e}"))?;
 
-    let provider = ClaudeProvider::new(api_key);
     let result = provider.generate(&transcript).await?;
 
     write_summary_files(&meeting_dir, &result)?;
@@ -137,6 +136,7 @@ fn write_summary_files(meeting_dir: &Path, result: &SummaryResult) -> Result<(),
 mod tests {
     use super::*;
     use meeting_notes_storage::{append_to_index, create_meeting};
+    use meeting_notes_summary::claude::ClaudeProvider;
     use std::path::PathBuf;
 
     fn temp_base(name: &str) -> PathBuf {
@@ -239,8 +239,7 @@ mod tests {
         // fails before it ever reaches the network. This exercises the
         // exact function summarize_meeting calls, so it proves the
         // catch-and-mark-failed wiring itself (not just its pieces in
-        // isolation) — without needing a real Claude API key or an
-        // AppHandle.
+        // isolation) — without needing a real provider or an AppHandle.
         let base = temp_base("run-summarize-fails");
         let meeting = create_meeting(&base, "Test meeting").expect("create meeting");
         append_to_index(&base, &meeting).expect("append to index");
@@ -248,7 +247,7 @@ mod tests {
         let result = tauri::async_runtime::block_on(run_summarize_or_mark_failed(
             &base,
             meeting.clone(),
-            "dummy-api-key".to_string(),
+            Box::new(ClaudeProvider::new("dummy-api-key".to_string())),
         ));
         assert!(result.is_err());
 
