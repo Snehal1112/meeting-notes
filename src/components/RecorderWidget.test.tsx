@@ -409,3 +409,56 @@ describe("RecorderWidget summary integration", () => {
     });
   });
 });
+
+describe("RecorderWidget done state", () => {
+  async function completeAFlowWith(summary: {
+    summary: string;
+    action_items: string[];
+  }) {
+    const { onTranscriptionComplete } = await import("@/lib/transcription");
+    const { summarizeMeeting } = await import("@/lib/summary");
+    let fire: ((meeting: MeetingMeta) => void) | undefined;
+    vi.mocked(onTranscriptionComplete).mockImplementation(async (callback) => {
+      fire = callback;
+      return () => {};
+    });
+    vi.mocked(summarizeMeeting).mockResolvedValue(summary);
+
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+    await vi.waitFor(() => expect(fire).toBeDefined());
+    await act(async () => {
+      fire!({ ...fakeMeeting, status: "Summarizing" });
+    });
+  }
+
+  it("shows the summary text and one checkbox per action item", async () => {
+    await completeAFlowWith({
+      summary: "Discussed the Q3 roadmap.",
+      action_items: ["Send follow-up email", "Book the room"],
+    });
+
+    expect(await screen.findByText(/discussed the q3 roadmap/i)).toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
+  });
+
+  it("checks an action item when its checkbox is clicked", async () => {
+    await completeAFlowWith({
+      summary: "Discussed the Q3 roadmap.",
+      action_items: ["Send follow-up email"],
+    });
+
+    const checkbox = await screen.findByRole("checkbox");
+    expect(checkbox).not.toBeChecked();
+    fireEvent.click(checkbox);
+    await vi.waitFor(() => expect(checkbox).toBeChecked());
+  });
+
+  it("returns to idle when New Recording is clicked", async () => {
+    await completeAFlowWith({ summary: "Discussed the Q3 roadmap.", action_items: [] });
+
+    fireEvent.click(await screen.findByRole("button", { name: /new recording/i }));
+    expect(await screen.findByRole("button", { name: /start recording/i })).toBeInTheDocument();
+  });
+});

@@ -7,6 +7,7 @@ import { transcribeMeeting, onTranscriptionComplete } from "@/lib/transcription"
 import { getConfig } from "@/lib/config";
 import { summarizeMeeting, type SummaryResult } from "@/lib/summary";
 import { Waveform } from "@/components/Waveform";
+import { ActionItemsList, type ActionItem } from "@/components/ActionItemsList";
 
 type WidgetState = "idle" | "recording" | "processing" | "done";
 type ProcessingStatus = "transcribing" | "summarizing";
@@ -22,6 +23,7 @@ export function RecorderWidget() {
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatus>("transcribing");
   const [summaryResult, setSummaryResult] = useState<SummaryResult | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [actionItems, setActionItems] = useState<ActionItem[]>([]);
   const [busy, setBusy] = useState(false);
   const currentMeetingRef = useRef<MeetingMeta | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -70,7 +72,13 @@ export function RecorderWidget() {
         currentMeetingRef.current = updated;
         setProcessingStatus("summarizing");
         try {
-          setSummaryResult(await summarizeMeeting(updated.id));
+          const result = await summarizeMeeting(updated.id);
+          setSummaryResult(result);
+          // Action items are stored flat (no per-item ids) by design, so the
+          // checklist keys off the array position.
+          setActionItems(
+            result.action_items.map((text, i) => ({ id: String(i), text, completed: false }))
+          );
         } catch (err) {
           // The transcript is already on disk, so a summary failure is not
           // data loss — record it and still move on to the done state
@@ -115,6 +123,11 @@ export function RecorderWidget() {
     setElapsedSeconds(0);
     setQualityWarning(null);
     setTranscriptionError(null);
+    // Clear the previous meeting's results, or they would still be on screen
+    // when this recording reaches the done state.
+    setSummaryResult(null);
+    setSummaryError(null);
+    setActionItems([]);
     try {
       const meeting = await createNewMeeting(title);
       currentMeetingRef.current = meeting;
@@ -186,6 +199,12 @@ export function RecorderWidget() {
     }
   };
 
+  const toggleActionItem = (id: string) => {
+    setActionItems((items) =>
+      items.map((item) => (item.id === id ? { ...item, completed: !item.completed } : item))
+    );
+  };
+
   const formattedTime = `${String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:${String(
     elapsedSeconds % 60
   ).padStart(2, "0")}`;
@@ -246,15 +265,23 @@ export function RecorderWidget() {
   }
 
   return (
-    <div className="flex flex-col gap-2 h-full overflow-y-auto text-sm">
+    <div className="flex flex-col gap-3 h-full overflow-y-auto text-sm">
       {qualityWarning && <span className="text-xs text-amber-600">{qualityWarning}</span>}
       {summaryError ? (
         <p className="text-xs text-muted-foreground">
           Not generated — configure a provider to enable summaries.
         </p>
       ) : (
-        <p>{summaryResult?.summary}</p>
+        <>
+          <p>{summaryResult?.summary}</p>
+          <ActionItemsList items={actionItems} onToggle={toggleActionItem} />
+        </>
       )}
+      <div className="flex gap-2 mt-auto">
+        <Button variant="outline" size="sm" onClick={() => setState("idle")}>
+          New Recording
+        </Button>
+      </div>
     </div>
   );
 }
