@@ -183,5 +183,60 @@ fn analyze_and_trim(samples: &[i16], sample_rate: u32) -> (Vec<i16>, Option<Qual
     (remaining.to_vec(), warning)
 }
 
+/// Runs `wpctl status` and returns the numeric node id of the default
+/// (`*`-marked) sink, or `None` if `wpctl` isn't found, exits non-zero, or no
+/// default sink is found.
+///
+/// Note: plain PipeWire (no PulseAudio compatibility layer) has no
+/// `pactl`-style `"<sink>.monitor"` source name to target — capturing a
+/// sink's audio requires targeting the sink's own node id with `pw-record
+/// --target <id> -P '{ stream.capture.sink=true }'`. See
+/// docs/superpowers/specs/environment.md, "Task 2: PipeWire audio capture",
+/// for the verified-working command and the environment where `pactl` isn't
+/// installed at all.
+pub fn find_default_sink_id() -> Option<u32> {
+    let output = Command::new("wpctl").arg("status").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    parse_default_sink_id(&stdout)
+}
+
+/// Parses `wpctl status` output and returns the numeric node id of the line
+/// marked `*` under the "Sinks:" section specifically (not "Sources:",
+/// "Sink endpoints:", or any other section — we want a playback sink to
+/// monitor, not a capture source). Pure function, no I/O, so it can be unit
+/// tested without `wpctl` installed or real hardware.
+fn parse_default_sink_id(wpctl_status_output: &str) -> Option<u32> {
+    let mut in_sinks = false;
+    for line in wpctl_status_output.lines() {
+        let trimmed = line.trim();
+        if trimmed.ends_with("Sinks:") {
+            // Matches "Sinks:" but not "Sink endpoints:" (which doesn't end
+            // with "Sinks:"), so we don't accidentally scan that section too.
+            in_sinks = true;
+            continue;
+        }
+        if trimmed.ends_with(':') {
+            // Any other section header (Sources:, Sink endpoints:, Streams:,
+            // Devices:, ...) ends the Sinks section.
+            in_sinks = false;
+            continue;
+        }
+        if !in_sinks {
+            continue;
+        }
+        if let Some(star_pos) = line.find('*') {
+            let rest = line[star_pos + 1..].trim_start();
+            let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(id) = digits.parse::<u32>() {
+                return Some(id);
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests;
