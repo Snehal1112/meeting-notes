@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { startRecording, stopRecording } from "@/lib/recording";
+import { Waveform } from "@/components/Waveform";
 
 type WidgetState = "idle" | "recording" | "processing" | "done";
 
@@ -70,6 +71,7 @@ export function RecorderWidget() {
             System audio unavailable — recording mic only
           </span>
         )}
+        <Waveform active={state === "recording"} />
         <div className="text-2xl font-mono">{formattedTime}</div>
         <Button variant="destructive" onClick={handleStop}>
           Stop Recording
