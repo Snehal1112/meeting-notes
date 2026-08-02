@@ -116,8 +116,18 @@ export function RecorderWidget() {
           // The transcript is already on disk, so a summary failure is not
           // data loss — record it and still move on to the done state
           // rather than leaving the widget stuck on "Generating summary…".
-          console.error("Summary generation failed:", errorMessage(err));
-          setSummaryError(errorMessage(err));
+          //
+          // "not_configured" (no provider set up at all) is a different
+          // problem from a configured-but-broken provider, and telling the
+          // user to configure one when they already have would misdirect
+          // them, so the two get distinct messages.
+          const message = errorMessage(err);
+          console.error("Summary generation failed:", message);
+          setSummaryError(
+            message.includes("not_configured")
+              ? "Not generated — configure a provider to enable summaries."
+              : "Summary generation failed. The transcript is still available."
+          );
         } finally {
           setState("done");
         }
@@ -308,9 +318,7 @@ export function RecorderWidget() {
         </TabsList>
         <TabsContent value="summary" className="overflow-y-auto flex-1">
           {summaryError ? (
-            <p className="text-xs text-muted-foreground">
-              Not generated — configure a provider to enable summaries.
-            </p>
+            <p className="text-xs text-muted-foreground">{summaryError}</p>
           ) : (
             <p>{summaryResult?.summary}</p>
           )}

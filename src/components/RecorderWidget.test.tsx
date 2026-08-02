@@ -602,3 +602,53 @@ describe("RecorderWidget transcription failure recovery", () => {
     consoleErrorSpy.mockRestore();
   });
 });
+
+describe("RecorderWidget summary failure fallback", () => {
+  async function failSummaryWith(error: Error) {
+    const { onTranscriptionComplete } = await import("@/lib/transcription");
+    const { summarizeMeeting } = await import("@/lib/summary");
+    let fire: ((meeting: MeetingMeta) => void) | undefined;
+    vi.mocked(onTranscriptionComplete).mockImplementation(async (callback) => {
+      fire = callback;
+      return () => {};
+    });
+    vi.mocked(summarizeMeeting).mockRejectedValue(error);
+
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+    await vi.waitFor(() => expect(fire).toBeDefined());
+    await act(async () => {
+      fire!({ ...fakeMeeting, status: "Summarizing" });
+    });
+  }
+
+  it("tells the user to configure a provider when none is configured", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await failSummaryWith(new Error("not_configured"));
+
+    expect(await screen.findByText(/configure a provider/i)).toBeInTheDocument();
+    consoleErrorSpy.mockRestore();
+  });
+
+  // A provider that is configured but broken (endpoint down, model not
+  // pulled, bad key) is a different problem from having no provider at all,
+  // and telling the user to "configure a provider" would be misleading.
+  it("reports a generation failure distinctly from the not-configured case", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await failSummaryWith(new Error("Ollama returned status 500: model not found"));
+
+    expect(await screen.findByText(/summary generation failed/i)).toBeInTheDocument();
+    expect(screen.queryByText(/configure a provider/i)).not.toBeInTheDocument();
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("still shows the transcript tab when summary generation fails", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await failSummaryWith(new Error("not_configured"));
+
+    await userEvent.click(await screen.findByRole("tab", { name: /transcript/i }));
+    expect(await screen.findByText(/alice: let's ship on friday/i)).toBeInTheDocument();
+    consoleErrorSpy.mockRestore();
+  });
+});
