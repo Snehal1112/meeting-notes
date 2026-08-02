@@ -58,9 +58,10 @@ export function Waveform({ active }: WaveformProps) {
           rafRef.current = requestAnimationFrame(draw);
         };
         draw();
-      } catch {
+      } catch (err) {
         // getUserMedia not available or permission denied in test/headless environments.
         // Component still renders the canvas, but no audio visualization occurs.
+        console.warn("Waveform: mic capture unavailable", err);
       }
     };
 

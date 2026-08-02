@@ -28,3 +28,10 @@ meeting-notes-transcription = { path = "../crates/meeting-notes-transcription" }
 meeting-notes-summary = { path = "../crates/meeting-notes-summary" }
 meeting-notes-storage = { path = "../crates/meeting-notes-storage" }
 
+# Needed to auto-grant the WebKitGTK microphone permission request, which is
+# denied by default because wry's webkitgtk backend installs no handler.
+# The version is pinned to what wry already resolves to so that only one
+# webkit2gtk (and therefore one `WebView` type) exists in the graph.
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
+
