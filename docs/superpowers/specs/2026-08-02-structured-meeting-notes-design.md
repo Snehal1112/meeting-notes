@@ -127,11 +127,13 @@ the provider's input budget, so the budget and the context window cannot drift a
 
 For a transcript that fits, each pass runs once. For one that does not, each pass runs per
 chunk and the partials are merged **deterministically in Rust**: topics concatenated and
-deduplicated by title, decisions / action items / open questions deduplicated. Only the
-summary paragraph needs a further model call, rewriting the per-chunk summaries into one.
+deduplicated by title, decisions / action items / open questions deduplicated, and the
+per-chunk summary paragraphs joined.
 
-Keeping the merge in Rust rather than in a large merge prompt makes it unit-testable and
-keeps the failure surface small.
+The merge involves no further model call at all. An extra "rewrite these summaries into one"
+call was considered and rejected: it adds a failure point and a lossy step to save little,
+since joined per-chunk summaries read acceptably. Keeping the whole merge in Rust makes it
+exhaustively unit-testable and keeps the failure surface small.
 
 If any pass on any chunk fails, the whole summarize fails. Partial notes presented as
 complete would be worse than an honest error.
@@ -235,8 +237,10 @@ The Summary tab renders Overview, Discussion Notes, Decisions and Open Questions
 elements — the typed model means no markdown parser is needed. The Action Items tab keeps its
 checkboxes, showing the owner alongside the task when one is known.
 
-Long meetings now take minutes rather than seconds, so the processing state shows which pass
-is running instead of a single indefinite "Generating summary…".
+Long meetings now take minutes rather than seconds, so the summarizing state explains that
+the work runs in several passes and may take a few minutes. It does not report which
+individual pass is running: that would require plumbing progress events from Rust to the
+frontend for a message the user cannot act on.
 
 ## Error handling
 
