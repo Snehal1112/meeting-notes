@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+async-trait = "0.1.91"
 directories = "6.0.0"
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.1.4"
+
+[dev-dependencies]
+tokio = { version = "1.53.1", features = ["full"] }
