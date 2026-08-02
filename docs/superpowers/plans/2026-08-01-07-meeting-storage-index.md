@@ -1,6 +1,6 @@
 # Meeting File Storage & Index Implementation Plan
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Create the per-meeting directory structure on disk and maintain `index.json` as a lightweight metadata index, plus detect orphaned recordings from interrupted sessions on launch.
 
@@ -20,7 +20,7 @@
 - Create: `crates/meeting-notes-storage/src/tests.rs`
 - Modify: `crates/meeting-notes-storage/Cargo.toml`
 
-- [ ] **Step 1: Define MeetingMeta and MeetingStatus in core**
+- [x] **Step 1: Define MeetingMeta and MeetingStatus in core**
 
 ```rust
 // crates/meeting-notes-core/src/meeting.rs
@@ -55,7 +55,7 @@ impl MeetingMeta {
 
 Register in `crates/meeting-notes-core/src/lib.rs`: `pub mod meeting;`. Add core's own dependency: `cd crates/meeting-notes-core && cargo add serde --features derive` (skip if already added in plan 02).
 
-- [ ] **Step 2: Write failing test for directory creation in the storage crate**
+- [x] **Step 2: Write failing test for directory creation in the storage crate**
 
 ```rust
 // crates/meeting-notes-storage/src/tests.rs
@@ -72,12 +72,12 @@ fn create_meeting_dir_creates_expected_path() {
 }
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `cargo test -p meeting-notes-storage -- --nocapture`
 Expected: FAIL — `create_meeting` not defined. Add dev-dependency: `cd crates/meeting-notes-storage && cargo add --dev tempfile`.
 
-- [ ] **Step 4: Implement create_meeting in the storage crate**
+- [x] **Step 4: Implement create_meeting in the storage crate**
 
 ```rust
 // crates/meeting-notes-storage/src/lib.rs
@@ -118,12 +118,12 @@ mod tests;
 
 Add dependencies from within `crates/meeting-notes-storage`: `cargo add chrono --features serde` and `cargo add meeting-notes-core --path ../meeting-notes-core` (if not already present from plan 01 Task 1).
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `cargo test -p meeting-notes-storage -- --nocapture`
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add crates/meeting-notes-core/src crates/meeting-notes-core/Cargo.toml crates/meeting-notes-storage/src crates/meeting-notes-storage/Cargo.toml
@@ -138,7 +138,7 @@ git commit -m "feat: add MeetingMeta/MeetingStatus to core and create_meeting to
 - Modify: `crates/meeting-notes-storage/src/lib.rs`
 - Modify: `crates/meeting-notes-storage/src/tests.rs`
 
-- [ ] **Step 1: Write failing test for index round-trip**
+- [x] **Step 1: Write failing test for index round-trip**
 
 ```rust
 #[test]
@@ -168,12 +168,12 @@ fn update_status_persists_change() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test -p meeting-notes-storage -- --nocapture`
 Expected: FAIL — `append_to_index`, `load_index`, `update_meeting` not defined.
 
-- [ ] **Step 3: Implement index functions**
+- [x] **Step 3: Implement index functions**
 
 ```rust
 // crates/meeting-notes-storage/src/lib.rs (additions)
@@ -214,12 +214,12 @@ pub fn update_meeting(base: &Path, updated: &MeetingMeta) -> std::io::Result<()>
 
 Add `cargo add serde_json` from within `crates/meeting-notes-storage` if not already present.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cargo test -p meeting-notes-storage -- --nocapture`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/meeting-notes-storage/src crates/meeting-notes-storage/Cargo.toml
@@ -239,7 +239,7 @@ git commit -m "feat: add index.json read/write for meeting metadata"
 - Create: `src/lib/storage.ts`
 - Modify: `src/components/RecorderWidget.tsx`
 
-- [ ] **Step 1: Add base_dir helper + orphan detection**
+- [x] **Step 1: Add base_dir helper + orphan detection**
 
 ```rust
 // crates/meeting-notes-storage/src/lib.rs (additions)
@@ -262,7 +262,7 @@ pub fn find_orphaned_meetings(base: &Path) -> std::io::Result<Vec<MeetingMeta>> 
 
 Add dependency from within `crates/meeting-notes-storage`: `cargo add directories`.
 
-- [ ] **Step 2: Add Tauri commands**
+- [x] **Step 2: Add Tauri commands**
 
 ```rust
 // src-tauri/src/commands/storage_commands.rs
@@ -294,7 +294,7 @@ pub fn get_orphaned_meetings() -> Result<Vec<MeetingMeta>, String> {
 
 Register the three commands in `main.rs`'s `generate_handler![]`.
 
-- [ ] **Step 3: Add TypeScript wrapper**
+- [x] **Step 3: Add TypeScript wrapper**
 
 ```ts
 // src/lib/storage.ts
@@ -318,7 +318,7 @@ export const updateMeetingStatus = (meeting: MeetingMeta) =>
 export const getOrphanedMeetings = () => invoke<MeetingMeta[]>("get_orphaned_meetings");
 ```
 
-- [ ] **Step 4: Replace the /tmp placeholder in RecorderWidget with real meeting creation**
+- [x] **Step 4: Replace the /tmp placeholder in RecorderWidget with real meeting creation**
 
 ```tsx
 // src/components/RecorderWidget.tsx (modify handleStart)
@@ -352,12 +352,12 @@ const handleStop = async () => {
 
 Remove the old `meetingsBaseDir` placeholder function; add a real `meetingsDataDir` that calls a new tiny Tauri command `get_data_dir` returning `base_dir()` as a string (add this command alongside the others in this task).
 
-- [ ] **Step 5: Manual verification**
+- [x] **Step 5: Manual verification**
 
 Run: `bun run tauri dev`, start and stop a recording.
 Expected: `~/.local/share/meeting-notes/index.json` contains one entry with status `Transcribing` after stop, and the meeting directory contains `audio.wav`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add crates/meeting-notes-storage src-tauri/src/commands src-tauri/src/main.rs src/lib/storage.ts src/components/RecorderWidget.tsx
