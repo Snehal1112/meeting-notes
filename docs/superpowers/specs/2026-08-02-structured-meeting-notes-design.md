@@ -153,16 +153,55 @@ pub trait SummaryProvider {
 ```
 
 All prompts and orchestration move to a provider-agnostic `notes.rs`. Claude reports a large
-budget and never chunks; Ollama derives its budget from `num_ctx`.
+budget and never chunks; Ollama derives its budget from `num_ctx`. Both run the identical
+pipeline.
 
-**Provider precedence is unchanged: Ollama when an endpoint is configured, Claude as the
-backup.** Both run the identical pipeline.
+## Provider selection
+
+The user chooses the provider explicitly, rather than it being decided for them by
+precedence. `Config` gains `summary_provider: Option<ProviderKind>`, serialized as
+`"ollama"` or `"claude"` and resolved through the existing env → config-file precedence.
+
+Resolution order:
+
+1. If `summary_provider` names a provider **and that provider is configured**, use it.
+2. Otherwise fall back to the existing implicit precedence: Ollama when an endpoint is set,
+   Claude otherwise.
+3. If neither is configured, the existing `not_configured` state applies.
+
+Step 1's "and that provider is configured" guard matters: a stored choice can go stale when
+a key or endpoint is later removed from the environment. Falling back beats failing on a
+choice the user made under different conditions.
+
+### Picker UI
+
+A small selector in the widget's idle state, above Start Recording:
+
+```
+Summarize with: (•) Ollama   ( ) Claude
+```
+
+- Only configured providers are selectable. An unconfigured one renders disabled with the
+  reason (`no API key set`, `no endpoint set`), because offering a choice that is guaranteed
+  to fail is worse than not offering it.
+- When exactly one provider is configured it is selected and the picker is informational.
+- When neither is configured the picker is hidden; the existing not-configured messaging on
+  the done state already covers that case.
+
+Changing the selection persists it, so the choice survives a restart.
+
+**Implementation hazard:** `save_config` writes the whole `Config` struct and
+`save_to_file` overwrites the file wholesale. The widget must therefore read the current
+config, change only `summary_provider`, and write the result back. Sending a partially
+populated `Config` would silently erase the user's API key, endpoint and whisper model.
 
 ## Configuration
 
 New `ollama_num_ctx`, resolved through the existing env → config-file precedence, defaulting
 to 8192. This is the fix for the silent-truncation defect. 8192 was verified to work within
 the available RAM on the target machine; 16384 failed to allocate.
+
+New `summary_provider`, as described above.
 
 ## Quality expectations
 
@@ -173,6 +212,9 @@ reliably surface. Multi-pass closes most of the **structural** gap; it does not 
 **interpretive** one. Local output will match the format and carry the concrete facts, while
 reading shallower than the reference. Claude, when it is the selected provider, should
 approach the reference.
+
+This is precisely why the provider picker exists: it lets the user trade privacy and cost
+against depth per meeting, instead of that trade-off being fixed by config precedence.
 
 The default Ollama model changes from `llama3` (not a general default anyone has pulled) to
 `gemma4:e2b`, which benchmarked better than `deepseek-coder-v2:16b` on this transcript —
@@ -212,9 +254,14 @@ Rust:
 - markdown rendering: full document against a fixture, plus omission of empty sections
 - JSON parsing for each pass's fragment shape, including malformed input
 
+- provider selection: an explicit choice is honoured; a stale choice whose provider is no
+  longer configured falls back; neither configured yields `not_configured`
+
 Frontend:
 - Summary tab renders topics, decisions and open questions
 - Action items render with and without an owner
+- the picker disables unconfigured providers, hides itself when neither is configured, and
+  persists a change without clearing the rest of the config
 
 Not covered by automated tests: whether the model's output is *good*. That is judged by
 running the pipeline against the reference transcript and comparing to the reference
@@ -222,6 +269,10 @@ document.
 
 ## Out of scope
 
+- A full settings screen. The provider picker is a single targeted control in the widget,
+  not the general settings surface the original design deferred.
+- Re-generating an existing meeting's notes with the other provider. The picker applies to
+  the next meeting summarized, not retroactively.
 - Speaker diarization. Owners come only from names spoken in the transcript.
 - Detecting that a recording cut off mid-sentence (present in the reference document as an
   italic note).
