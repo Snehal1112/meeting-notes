@@ -2008,6 +2008,7 @@ name = "meeting-notes-transcription"
 version = "0.1.0"
 dependencies = [
  "meeting-notes-core",
+ "serde_json",
 ]
 
 [[package]]
