@@ -11,7 +11,43 @@ pub async fn summarize_meeting(app: AppHandle, meeting_id: String) -> Result<Sum
     let base = base_dir().ok_or("could not resolve data directory")?;
     let meeting = find_meeting(&base, &meeting_id)?;
 
-    let meeting_dir = meeting.dir_path(&base);
+    let (result, updated) = run_summarize_or_mark_failed(&base, meeting).await?;
+    app.emit("summary-complete", &updated)
+        .map_err(|e| e.to_string())?;
+    Ok(result)
+}
+
+/// Runs the summarize flow and, if any step fails, best-effort marks the
+/// meeting Failed in the index before returning the original error. Split
+/// out from `summarize_meeting` so this AppHandle-free control flow can be
+/// unit tested without a running Tauri app.
+async fn run_summarize_or_mark_failed(
+    base: &Path,
+    meeting: MeetingMeta,
+) -> Result<(SummaryResult, MeetingMeta), String> {
+    match run_summarize(base, meeting.clone()).await {
+        Ok(ok) => Ok(ok),
+        Err(e) => {
+            // Don't leave the meeting stuck at "Summarizing" forever if the
+            // transcript read, the Claude API call, a file write, or the
+            // index update itself failed — best-effort mark it Failed
+            // instead. Mirrors the fire-and-log pattern already used in
+            // transcription_commands.rs's transcribe_meeting: a failure here
+            // must not mask the original error returned to the caller.
+            mark_meeting_failed(base, meeting);
+            Err(e)
+        }
+    }
+}
+
+/// Reads the transcript, calls the Claude provider, writes the summary
+/// files, and marks the meeting Done in the index. Returns the summary
+/// result and the updated meeting on success.
+async fn run_summarize(
+    base: &Path,
+    meeting: MeetingMeta,
+) -> Result<(SummaryResult, MeetingMeta), String> {
+    let meeting_dir = meeting.dir_path(base);
     let transcript = std::fs::read_to_string(meeting_dir.join("transcript.txt"))
         .map_err(|e| format!("could not read transcript: {e}"))?;
 
@@ -27,11 +63,22 @@ pub async fn summarize_meeting(app: AppHandle, meeting_id: String) -> Result<Sum
 
     let mut updated = meeting;
     updated.status = MeetingStatus::Done;
-    update_meeting(&base, &updated).map_err(|e| e.to_string())?;
-    app.emit("summary-complete", &updated)
-        .map_err(|e| e.to_string())?;
+    update_meeting(base, &updated).map_err(|e| e.to_string())?;
 
-    Ok(result)
+    Ok((result, updated))
+}
+
+/// Best-effort marks `meeting` Failed in the index. Logs to stderr (rather
+/// than propagating) if even that write fails, since the caller already has
+/// a more relevant error to report.
+fn mark_meeting_failed(base: &Path, mut meeting: MeetingMeta) {
+    meeting.status = MeetingStatus::Failed;
+    if let Err(e) = update_meeting(base, &meeting) {
+        eprintln!(
+            "failed to mark meeting {} as Failed after a summarize error: {e}",
+            meeting.id
+        );
+    }
 }
 
 /// Loads the current meeting from the on-disk index by id, rather than
@@ -143,6 +190,64 @@ mod tests {
             .expect("read action_items.json");
         assert!(action_items_json.contains("Send follow-up email"));
         assert!(action_items_json.contains("\"completed\": false"));
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn mark_meeting_failed_persists_failed_status_in_the_index() {
+        let base = temp_base("marks-failed");
+        let meeting = create_meeting(&base, "Test meeting").expect("create meeting");
+        append_to_index(&base, &meeting).expect("append to index");
+
+        mark_meeting_failed(&base, meeting.clone());
+
+        let index = load_index(&base).expect("load index");
+        let persisted = index
+            .iter()
+            .find(|m| m.id == meeting.id)
+            .expect("meeting present in index");
+        assert_eq!(persisted.status, MeetingStatus::Failed);
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn mark_meeting_failed_does_not_panic_when_meeting_is_not_in_the_index() {
+        // The meeting was never appended to index.json (e.g. a resolveable
+        // base_dir but an index write that never happened) — update_meeting
+        // returns an error, which must be logged, not panicked on.
+        let base = temp_base("missing-from-index");
+        let meeting = create_meeting(&base, "Untracked meeting").expect("create meeting");
+
+        mark_meeting_failed(&base, meeting);
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn run_summarize_or_mark_failed_marks_the_meeting_failed_in_the_index_on_error() {
+        // No transcript.txt was ever written for this meeting (e.g. the
+        // transcription step never completed), so run_summarize's read
+        // fails before it ever reaches the network. This exercises the
+        // exact function summarize_meeting calls, so it proves the
+        // catch-and-mark-failed wiring itself (not just its pieces in
+        // isolation) — without needing a real Claude API key or an
+        // AppHandle.
+        let base = temp_base("run-summarize-fails");
+        let meeting = create_meeting(&base, "Test meeting").expect("create meeting");
+        append_to_index(&base, &meeting).expect("append to index");
+
+        let result =
+            tauri::async_runtime::block_on(run_summarize_or_mark_failed(&base, meeting.clone()));
+        assert!(result.is_err());
+
+        let index = load_index(&base).expect("load index");
+        let persisted = index
+            .iter()
+            .find(|m| m.id == meeting.id)
+            .expect("meeting present in index");
+        assert_eq!(persisted.status, MeetingStatus::Failed);
 
         std::fs::remove_dir_all(&base).ok();
     }
