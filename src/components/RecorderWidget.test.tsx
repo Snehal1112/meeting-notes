@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { RecorderWidget } from "./RecorderWidget";
@@ -208,6 +209,35 @@ describe("RecorderWidget transcription integration", () => {
     );
   });
 
+  // Regression test for a bug where handleStop sent the just-computed
+  // {status: "Transcribing", duration_seconds} object to updateMeetingStatus
+  // over IPC but never wrote it back into currentMeetingRef.current. The
+  // transcription effect then read the same stale ref (still
+  // status: "Recording", duration_seconds: null from meeting creation) and
+  // handed it to transcribeMeeting, whose Rust side does a full-record index
+  // replace — silently reverting the update that updateMeetingStatus had
+  // just persisted. Asserting only `id` (as the tests above do) doesn't
+  // catch this; the fields that actually got clobbered must be asserted.
+  it("passes the up-to-date status and duration to transcribeMeeting, not the stale pre-stop meeting", async () => {
+    const { transcribeMeeting } = await import("@/lib/transcription");
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+    await vi.waitFor(() =>
+      expect(transcribeMeeting).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: fakeMeeting.id,
+          status: "Transcribing",
+          duration_seconds: expect.any(Number),
+        }),
+        expect.any(String)
+      )
+    );
+    const [passedMeeting] = vi.mocked(transcribeMeeting).mock.calls[0]!;
+    expect(passedMeeting.status).not.toBe("Recording");
+    expect(passedMeeting.duration_seconds).not.toBeNull();
+  });
+
   it("falls back to base.en when whisper_model is not configured", async () => {
     const { transcribeMeeting } = await import("@/lib/transcription");
     const { getConfig } = await import("@/lib/config");
@@ -252,5 +282,34 @@ describe("RecorderWidget transcription integration", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/whisper\.cpp binary not found/i);
     await vi.waitFor(() => expect(consoleErrorSpy).toHaveBeenCalled());
     consoleErrorSpy.mockRestore();
+  });
+
+  // Regression test for React.StrictMode (enabled app-wide in src/main.tsx)
+  // double-invoking effects in dev: mount -> run -> cleanup -> run again.
+  // The transcription effect must not let an abandoned first invocation
+  // call transcribeMeeting (which spawns a real whisper.cpp subprocess) nor
+  // leave its transcription-complete listener subscribed.
+  it("only calls transcribeMeeting once and unsubscribes the abandoned listener under StrictMode's double-invoke", async () => {
+    const { transcribeMeeting, onTranscriptionComplete } = await import("@/lib/transcription");
+    const unlistenSpies: ReturnType<typeof vi.fn>[] = [];
+    vi.mocked(onTranscriptionComplete).mockImplementation(async () => {
+      const spy = vi.fn();
+      unlistenSpies.push(spy);
+      return spy;
+    });
+
+    render(
+      <StrictMode>
+        <RecorderWidget />
+      </StrictMode>
+    );
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+
+    await vi.waitFor(() => expect(transcribeMeeting).toHaveBeenCalledTimes(1));
+    // Only one listener registration should remain live; any abandoned
+    // StrictMode invocation's listener must already be unsubscribed.
+    const liveListeners = unlistenSpies.filter((spy) => spy.mock.calls.length === 0);
+    expect(liveListeners).toHaveLength(1);
   });
 });

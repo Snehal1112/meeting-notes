@@ -42,19 +42,37 @@ export function RecorderWidget() {
   // recording itself is already safely on disk by this point, so a
   // transcription failure here must not look like data loss — it's surfaced
   // via transcriptionError instead of leaving the widget stuck silently.
+  //
+  // React.StrictMode (see src/main.tsx) double-invokes effects in dev:
+  // mount -> run -> cleanup -> run again. Without the `cancelled` checks
+  // below, that would fire two concurrent real whisper.cpp subprocesses (via
+  // transcribeMeeting) for the same meeting, plus leak the first run's event
+  // listener if its cleanup ran before `onTranscriptionComplete` resolved.
+  // Every async gap re-checks `cancelled` so an abandoned first invocation
+  // never calls transcribeMeeting and never leaves a live listener behind.
   useEffect(() => {
     if (state !== "processing" || !currentMeetingRef.current) return;
 
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     (async () => {
-      unlisten = await onTranscriptionComplete((updated) => {
+      const stopListening = await onTranscriptionComplete((updated) => {
         currentMeetingRef.current = updated;
         // Summary generation wired in a later plan; for now just log.
         console.log("Transcription complete", updated);
       });
+      unlisten = stopListening;
+      if (cancelled) {
+        // Cleanup already ran before this listener finished registering —
+        // this invocation was abandoned (e.g. StrictMode's discarded first
+        // run). Unsubscribe immediately and never call transcribeMeeting.
+        stopListening();
+        return;
+      }
+
       try {
         const config = await getConfig();
+        if (cancelled) return;
         await transcribeMeeting(currentMeetingRef.current!, config.whisper_model ?? "base.en");
       } catch (err) {
         if (!cancelled) {
@@ -117,12 +135,19 @@ export function RecorderWidget() {
       // update the meeting index shouldn't block the UI transition or be
       // reported as a recording error — just log it so it isn't silently lost.
       if (currentMeetingRef.current) {
+        const transcribing: MeetingMeta = {
+          ...currentMeetingRef.current,
+          status: "Transcribing",
+          duration_seconds: elapsedSeconds,
+        };
         try {
-          await updateMeetingStatus({
-            ...currentMeetingRef.current,
-            status: "Transcribing",
-            duration_seconds: elapsedSeconds,
-          });
+          await updateMeetingStatus(transcribing);
+          // Keep the in-memory ref in sync with what was just persisted —
+          // otherwise the transcription effect below would read the stale
+          // pre-stop object (status "Recording", duration_seconds null) and
+          // hand it to transcribe_meeting, which does a full-record replace
+          // in the index and would silently undo this update.
+          currentMeetingRef.current = transcribing;
         } catch (err) {
           console.error("Failed to update meeting status in index:", errorMessage(err));
         }
