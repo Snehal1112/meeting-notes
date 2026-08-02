@@ -3,6 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { startRecording, stopRecording } from "@/lib/recording";
 import { createNewMeeting, getDataDir, updateMeetingStatus, type MeetingMeta } from "@/lib/storage";
+import { transcribeMeeting, onTranscriptionComplete } from "@/lib/transcription";
+import { getConfig } from "@/lib/config";
 import { Waveform } from "@/components/Waveform";
 
 type WidgetState = "idle" | "recording" | "processing" | "done";
@@ -14,6 +16,7 @@ export function RecorderWidget() {
   const [micOnlyWarning, setMicOnlyWarning] = useState(false);
   const [qualityWarning, setQualityWarning] = useState<string | null>(null);
   const [recordingError, setRecordingError] = useState<string | null>(null);
+  const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const currentMeetingRef = useRef<MeetingMeta | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -35,12 +38,45 @@ export function RecorderWidget() {
     };
   }, [state]);
 
+  // Kick off transcription as soon as we enter the processing state. The
+  // recording itself is already safely on disk by this point, so a
+  // transcription failure here must not look like data loss — it's surfaced
+  // via transcriptionError instead of leaving the widget stuck silently.
+  useEffect(() => {
+    if (state !== "processing" || !currentMeetingRef.current) return;
+
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      unlisten = await onTranscriptionComplete((updated) => {
+        currentMeetingRef.current = updated;
+        // Summary generation wired in a later plan; for now just log.
+        console.log("Transcription complete", updated);
+      });
+      try {
+        const config = await getConfig();
+        await transcribeMeeting(currentMeetingRef.current!, config.whisper_model ?? "base.en");
+      } catch (err) {
+        if (!cancelled) {
+          console.error("Transcription failed:", errorMessage(err));
+          setTranscriptionError(`Transcription failed: ${errorMessage(err)}`);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [state]);
+
   const handleStart = async () => {
     if (busy) return;
     setBusy(true);
     setRecordingError(null);
     setElapsedSeconds(0);
     setQualityWarning(null);
+    setTranscriptionError(null);
     try {
       const meeting = await createNewMeeting(title);
       currentMeetingRef.current = meeting;
@@ -71,6 +107,7 @@ export function RecorderWidget() {
     if (busy) return;
     setBusy(true);
     setRecordingError(null);
+    setTranscriptionError(null);
     try {
       const result = await stopRecording();
       setQualityWarning(result.quality_warning);
@@ -140,6 +177,21 @@ export function RecorderWidget() {
         <Button variant="destructive" onClick={handleStop} disabled={busy}>
           Stop Recording
         </Button>
+      </div>
+    );
+  }
+
+  if (state === "processing") {
+    return (
+      <div className="flex flex-col gap-2 h-full justify-center items-center text-sm text-muted-foreground">
+        {qualityWarning && <span className="text-xs text-amber-600">{qualityWarning}</span>}
+        {transcriptionError ? (
+          <span role="alert" className="text-xs text-red-600">
+            {transcriptionError}
+          </span>
+        ) : (
+          <span>Transcribing…</span>
+        )}
       </div>
     );
   }

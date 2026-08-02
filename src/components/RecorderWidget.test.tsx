@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { RecorderWidget } from "./RecorderWidget";
+import type { MeetingMeta } from "@/lib/storage";
 
 vi.mock("@/lib/recording", () => ({
   startRecording: vi.fn(),
@@ -12,6 +13,15 @@ vi.mock("@/lib/storage", () => ({
   updateMeetingStatus: vi.fn(),
   getOrphanedMeetings: vi.fn(),
   getDataDir: vi.fn(),
+}));
+
+vi.mock("@/lib/transcription", () => ({
+  transcribeMeeting: vi.fn(),
+  onTranscriptionComplete: vi.fn(),
+}));
+
+vi.mock("@/lib/config", () => ({
+  getConfig: vi.fn(),
 }));
 
 const fakeMeeting = {
@@ -34,6 +44,17 @@ beforeEach(async () => {
   vi.mocked(createNewMeeting).mockReset().mockResolvedValue(fakeMeeting);
   vi.mocked(updateMeetingStatus).mockReset().mockResolvedValue(undefined);
   vi.mocked(getDataDir).mockReset().mockResolvedValue("/home/user/.local/share/meeting-notes");
+
+  const { transcribeMeeting, onTranscriptionComplete } = await import("@/lib/transcription");
+  vi.mocked(transcribeMeeting).mockReset().mockResolvedValue(undefined);
+  vi.mocked(onTranscriptionComplete).mockReset().mockResolvedValue(() => {});
+
+  const { getConfig } = await import("@/lib/config");
+  vi.mocked(getConfig).mockReset().mockResolvedValue({
+    claude_api_key: null,
+    ollama_endpoint: null,
+    whisper_model: "base.en",
+  });
 });
 
 describe("RecorderWidget idle state", () => {
@@ -160,8 +181,75 @@ describe("RecorderWidget meeting storage integration", () => {
     render(<RecorderWidget />);
     fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
     fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
-    expect(await screen.findByText(/processing\/done placeholder/i)).toBeInTheDocument();
+    expect(await screen.findByText(/transcribing/i)).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await vi.waitFor(() => expect(consoleErrorSpy).toHaveBeenCalled());
+    consoleErrorSpy.mockRestore();
+  });
+});
+
+describe("RecorderWidget transcription integration", () => {
+  it("calls transcribeMeeting with the resolved whisper model after entering processing", async () => {
+    const { transcribeMeeting } = await import("@/lib/transcription");
+    const { getConfig } = await import("@/lib/config");
+    vi.mocked(getConfig).mockResolvedValue({
+      claude_api_key: null,
+      ollama_endpoint: null,
+      whisper_model: "small.en",
+    });
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+    await vi.waitFor(() =>
+      expect(transcribeMeeting).toHaveBeenCalledWith(
+        expect.objectContaining({ id: fakeMeeting.id }),
+        "small.en"
+      )
+    );
+  });
+
+  it("falls back to base.en when whisper_model is not configured", async () => {
+    const { transcribeMeeting } = await import("@/lib/transcription");
+    const { getConfig } = await import("@/lib/config");
+    vi.mocked(getConfig).mockResolvedValue({
+      claude_api_key: null,
+      ollama_endpoint: null,
+      whisper_model: null,
+    });
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+    await vi.waitFor(() =>
+      expect(transcribeMeeting).toHaveBeenCalledWith(expect.objectContaining({ id: fakeMeeting.id }), "base.en")
+    );
+  });
+
+  it("updates the current meeting ref and logs when transcription-complete fires", async () => {
+    const { onTranscriptionComplete } = await import("@/lib/transcription");
+    let firedCallback: ((meeting: MeetingMeta) => void) | undefined;
+    vi.mocked(onTranscriptionComplete).mockImplementation(async (callback) => {
+      firedCallback = callback;
+      return () => {};
+    });
+    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+    await vi.waitFor(() => expect(firedCallback).toBeDefined());
+    const updatedMeeting = { ...fakeMeeting, status: "Summarizing" as const };
+    firedCallback!(updatedMeeting);
+    await vi.waitFor(() => expect(consoleLogSpy).toHaveBeenCalledWith("Transcription complete", updatedMeeting));
+    consoleLogSpy.mockRestore();
+  });
+
+  it("surfaces a transcription error instead of hanging on Transcribing forever", async () => {
+    const { transcribeMeeting } = await import("@/lib/transcription");
+    vi.mocked(transcribeMeeting).mockRejectedValueOnce(new Error("whisper.cpp binary not found"));
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/whisper\.cpp binary not found/i);
     await vi.waitFor(() => expect(consoleErrorSpy).toHaveBeenCalled());
     consoleErrorSpy.mockRestore();
   });
