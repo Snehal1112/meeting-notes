@@ -14,7 +14,7 @@ pub struct StopRecordingResult {
 }
 
 #[tauri::command(async)]
-pub fn start_recording(state: State<RecordingState>, output_path: String) -> Result<(), String> {
+pub fn start_recording(state: State<RecordingState>, output_path: String) -> Result<bool, String> {
     let mut guard = state.0.lock().unwrap();
     if guard.is_some() {
         return Err("a recording is already in progress".to_string());
@@ -23,9 +23,9 @@ pub fn start_recording(state: State<RecordingState>, output_path: String) -> Res
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let handle = RecordingHandle::start_mic(&path).map_err(|e| e.to_string())?;
+    let (handle, used_system_audio) = RecordingHandle::start(&path).map_err(|e| e.to_string())?;
     *guard = Some(handle);
-    Ok(())
+    Ok(used_system_audio)
 }
 
 #[tauri::command(async)]

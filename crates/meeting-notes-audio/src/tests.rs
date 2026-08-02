@@ -70,7 +70,9 @@ Audio
 #[ignore = "requires a real PipeWire mic source; run manually with `cargo test -- --ignored` on hardware"]
 fn start_creates_output_file_after_stop() {
     let tmp = std::env::temp_dir().join(format!("mic-test-{}.wav", std::process::id()));
-    let mut handle = RecordingHandle::start_mic(&tmp).expect("should start recording");
+    let (mut handle, used_system_audio) =
+        RecordingHandle::start(&tmp).expect("should start recording");
+    println!("used_system_audio = {used_system_audio}");
     std::thread::sleep(std::time::Duration::from_millis(500));
     handle.stop().expect("should stop cleanly");
     assert!(tmp.exists(), "expected wav file to exist at {:?}", tmp);

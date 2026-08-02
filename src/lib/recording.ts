@@ -6,6 +6,6 @@ export interface StopRecordingResult {
 }
 
 export const startRecording = (outputPath: string) =>
-  invoke<void>("start_recording", { outputPath });
+  invoke<boolean>("start_recording", { outputPath }); // returns usedSystemAudio
 
 export const stopRecording = () => invoke<StopRecordingResult>("stop_recording");

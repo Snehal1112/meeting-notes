@@ -27,6 +27,11 @@ pub enum RecordingError {
     /// An error occurred while reading or writing the WAV file itself
     /// (via `hound`).
     Wav(hound::Error),
+    /// An error occurred while mixing the mic and system-audio streams
+    /// together (see `mix_wav_files`), which returns a bare `String` rather
+    /// than an `Io`/`Wav` error since it can fail for either reason (or
+    /// neither, e.g. mismatched specs).
+    Mix(String),
 }
 
 impl std::fmt::Display for RecordingError {
@@ -34,6 +39,7 @@ impl std::fmt::Display for RecordingError {
         match self {
             RecordingError::Io(e) => write!(f, "recording I/O error: {e}"),
             RecordingError::Wav(e) => write!(f, "recording WAV read/write error: {e}"),
+            RecordingError::Mix(e) => write!(f, "recording mix error: {e}"),
         }
     }
 }
@@ -75,41 +81,101 @@ impl From<hound::Error> for RecordingError {
 }
 
 pub struct RecordingHandle {
-    child: Child,
-    output_path: PathBuf,
+    mic_child: Child,
+    system_child: Option<Child>,
+    mic_path: PathBuf,
+    system_path: Option<PathBuf>,
+    final_output_path: PathBuf,
 }
 
 impl RecordingHandle {
-    /// Starts recording default mic input to `output_path` as a WAV file via pw-record.
-    pub fn start_mic(output_path: &Path) -> std::io::Result<Self> {
-        let child = Command::new("pw-record")
-            .arg("--channels=1")
-            .arg("--rate=16000")
-            .arg(output_path)
+    /// Starts recording default mic input, and — if a default sink is
+    /// found via `find_default_sink_id()` — system (playback) audio too, to
+    /// separate WAV files via `pw-record`. Returns the handle along with a
+    /// `used_system_audio` bool: `true` when a second `pw-record` process
+    /// was spawned to capture system audio, `false` when no default sink
+    /// was found and this falls back to mic-only capture.
+    pub fn start(final_output_path: &Path) -> std::io::Result<(Self, bool)> {
+        let mic_path = final_output_path.with_extension("mic.wav");
+        let mic_child = Command::new("pw-record")
+            .args(["--channels=1", "--rate=16000"])
+            .arg(&mic_path)
             .spawn()?;
-        Ok(RecordingHandle {
-            child,
-            output_path: output_path.to_path_buf(),
-        })
+
+        let (system_child, system_path, used_system_audio) = match find_default_sink_id() {
+            Some(id) => {
+                let sys_path = final_output_path.with_extension("system.wav");
+                // No shell is involved here, so the -P value is passed as a
+                // single argv entry as-is — it must NOT be shell-quoted.
+                // See docs/superpowers/specs/environment.md, "Task 2:
+                // PipeWire audio capture" for why `--target <sink-id> -P
+                // '{ stream.capture.sink=true }'` is required to capture a
+                // sink's own audio (there's no pactl-style monitor source).
+                let child = Command::new("pw-record")
+                    .args(["--channels=1", "--rate=16000", "--target"])
+                    .arg(id.to_string())
+                    .args(["-P", "{ stream.capture.sink=true }"])
+                    .arg(&sys_path)
+                    .spawn()?;
+                (Some(child), Some(sys_path), true)
+            }
+            None => (None, None, false),
+        };
+
+        Ok((
+            RecordingHandle {
+                mic_child,
+                system_child,
+                mic_path,
+                system_path,
+                final_output_path: final_output_path.to_path_buf(),
+            },
+            used_system_audio,
+        ))
     }
 
-    /// Stops the recording by sending SIGTERM so pw-record finalizes the WAV file,
-    /// then trims the leading DC-offset settling window and checks the recording
-    /// for signs of a DC-offset/clipping mic fault. The (trimmed) file is always
-    /// written back to `output_path`, even when a quality warning is returned, so
-    /// the caller still has the recording available — just flagged as suspect.
+    /// Stops the recording(s) by sending SIGTERM so `pw-record` finalizes the
+    /// WAV file(s), then produces the final output at `final_output_path`:
+    /// mixed mic+system audio when system audio was captured, or just the
+    /// mic recording (renamed into place) otherwise. Either way, the leading
+    /// DC-offset settling window is trimmed and the result is checked for
+    /// signs of a DC-offset/clipping mic fault, exactly as before — just now
+    /// applied once to the final (possibly mixed) output rather than the raw
+    /// mic stream.
     pub fn stop(&mut self) -> Result<Option<QualityWarning>, RecordingError> {
         // pw-record needs a graceful signal (not kill -9) to write valid WAV headers.
         unsafe {
-            libc::kill(self.child.id() as i32, libc::SIGTERM);
+            libc::kill(self.mic_child.id() as i32, libc::SIGTERM);
         }
-        self.child.wait()?;
+        self.mic_child.wait()?;
 
-        trim_and_check_file(&self.output_path)
+        if let Some(child) = &mut self.system_child {
+            unsafe {
+                libc::kill(child.id() as i32, libc::SIGTERM);
+            }
+            child.wait()?;
+        }
+
+        match &self.system_path {
+            Some(system_path) => {
+                mix_wav_files(&self.mic_path, system_path, &self.final_output_path)
+                    .map_err(RecordingError::Mix)?;
+                // Best-effort cleanup of the intermediate per-stream files;
+                // failure to remove them shouldn't fail an otherwise-successful stop().
+                let _ = std::fs::remove_file(&self.mic_path);
+                let _ = std::fs::remove_file(system_path);
+            }
+            None => {
+                std::fs::rename(&self.mic_path, &self.final_output_path)
+                    .map_err(RecordingError::from)?;
+            }
+        }
+
+        trim_and_check_file(&self.final_output_path)
     }
 
     pub fn output_path(&self) -> &Path {
-        &self.output_path
+        &self.final_output_path
     }
 }
 
@@ -117,9 +183,15 @@ impl Drop for RecordingHandle {
     fn drop(&mut self) {
         // Best-effort: if the process already exited, this is a no-op signal to a dead pid.
         unsafe {
-            libc::kill(self.child.id() as i32, libc::SIGTERM);
+            libc::kill(self.mic_child.id() as i32, libc::SIGTERM);
         }
-        let _ = self.child.wait();
+        let _ = self.mic_child.wait();
+        if let Some(child) = &mut self.system_child {
+            unsafe {
+                libc::kill(child.id() as i32, libc::SIGTERM);
+            }
+            let _ = child.wait();
+        }
     }
 }
 
