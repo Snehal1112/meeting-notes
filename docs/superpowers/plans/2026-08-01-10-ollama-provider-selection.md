@@ -17,7 +17,7 @@
 - Modify: `crates/meeting-notes-summary/src/lib.rs`
 - Modify: `crates/meeting-notes-summary/src/ollama_tests.rs`
 
-- [ ] **Step 1: Write failing test for Ollama response parsing**
+- [x] **Step 1: Write failing test for Ollama response parsing**
 
 ```rust
 // crates/meeting-notes-summary/src/ollama_tests.rs
@@ -34,12 +34,12 @@ fn parses_valid_ollama_json_response() {
 
 Register `#[cfg(test)] mod ollama_tests;` in `crates/meeting-notes-summary/src/lib.rs`.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test -p meeting-notes-summary -- --nocapture`
 Expected: FAIL — `ollama::parse_summary_response` not defined.
 
-- [ ] **Step 3: Implement OllamaProvider**
+- [x] **Step 3: Implement OllamaProvider**
 
 ```rust
 // crates/meeting-notes-summary/src/ollama.rs
@@ -111,12 +111,12 @@ impl SummaryProvider for OllamaProvider {
 
 Add `pub mod ollama;` to `crates/meeting-notes-summary/src/lib.rs`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cargo test -p meeting-notes-summary -- --nocapture`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/meeting-notes-summary/src/ollama.rs crates/meeting-notes-summary/src/lib.rs
@@ -131,7 +131,7 @@ git commit -m "feat: implement OllamaProvider for local summary generation"
 - Modify: `crates/meeting-notes-summary/src/lib.rs`
 - Modify: `crates/meeting-notes-summary/src/ollama_tests.rs`
 
-- [ ] **Step 1: Write failing test for selection precedence**
+- [x] **Step 1: Write failing test for selection precedence**
 
 ```rust
 // crates/meeting-notes-summary/src/selection_tests.rs
@@ -167,12 +167,12 @@ fn selects_none_when_neither_configured() {
 
 Register `#[cfg(test)] mod selection_tests;` in `crates/meeting-notes-summary/src/lib.rs`.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test -p meeting-notes-summary -- --nocapture`
 Expected: FAIL — `select_provider_kind`, `ProviderKind` not defined.
 
-- [ ] **Step 3: Implement selection logic and provider factory**
+- [x] **Step 3: Implement selection logic and provider factory**
 
 ```rust
 // crates/meeting-notes-summary/src/lib.rs (additions)
@@ -210,12 +210,12 @@ pub fn build_provider(config: &Config) -> Option<Box<dyn SummaryProvider + Send 
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cargo test -p meeting-notes-summary -- --nocapture`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/meeting-notes-summary/src/lib.rs
@@ -229,7 +229,7 @@ git commit -m "feat: add provider selection logic (Claude preferred, Ollama fall
 **Files:**
 - Modify: `src-tauri/src/commands/summary_commands.rs`
 
-- [ ] **Step 1: Replace hardcoded ClaudeProvider with build_provider**
+- [x] **Step 1: Replace hardcoded ClaudeProvider with build_provider**
 
 ```rust
 // src-tauri/src/commands/summary_commands.rs (modify summarize_meeting)
@@ -264,12 +264,22 @@ Remove the now-unused `use meeting_notes_summary::claude::ClaudeProvider;` impor
 Run Ollama locally (`ollama serve`, with a model pulled), unset `MEETING_NOTES_CLAUDE_API_KEY`, set `MEETING_NOTES_OLLAMA_ENDPOINT=http://localhost:11434`, run `bun run tauri dev`, call `summarizeMeeting(meeting)`.
 Expected: returns a valid `SummaryResult` generated locally.
 
+> Partially verified: the provider layer was exercised against a real local
+> Ollama via the ignored test `generates_summary_via_real_ollama_endpoint`
+> (`MEETING_NOTES_OLLAMA_MODEL=gemma4:e2b cargo test -p meeting-notes-summary
+> -- --ignored`), which returned a valid `SummaryResult`. The in-app
+> click-through is deferred to plan 11, which wires the summary UI.
+
 - [ ] **Step 3: Manual verification — not configured path**
 
 Unset both `MEETING_NOTES_CLAUDE_API_KEY` and `MEETING_NOTES_OLLAMA_ENDPOINT`, remove/rename the config file, call `summarizeMeeting(meeting)`.
 Expected: command rejects with `"not_configured"` string, which the frontend (wired in plan 11) will map to a "Not generated — configure a provider" message.
 
-- [ ] **Step 4: Commit**
+> Partially verified: `build_provider` returning None for an empty config is
+> covered by `build_provider_returns_none_when_neither_configured`. The
+> in-app rejection path is deferred to plan 11.
+
+- [x] **Step 4: Commit**
 
 ```bash
 git add src-tauri/src/commands/summary_commands.rs
