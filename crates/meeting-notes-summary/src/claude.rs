@@ -28,7 +28,7 @@ pub fn parse_summary_response(raw: &str) -> Result<SummaryResult, String> {
 impl SummaryProvider for ClaudeProvider {
     async fn generate(&self, transcript: &str) -> Result<SummaryResult, String> {
         let body = json!({
-            "model": "claude-sonnet-4-6",
+            "model": "claude-sonnet-5",
             "max_tokens": 1024,
             "system": SYSTEM_PROMPT,
             "messages": [{ "role": "user", "content": transcript }]
