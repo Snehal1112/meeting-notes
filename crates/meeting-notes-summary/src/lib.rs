@@ -1,1 +1,4 @@
-// Filled in by later plans.
+pub mod claude;
+
+#[cfg(test)]
+mod claude_tests;
