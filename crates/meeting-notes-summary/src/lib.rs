@@ -10,14 +10,16 @@ pub enum ProviderKind {
     Ollama,
 }
 
-/// Claude is preferred when both are configured (higher MVP quality per the
-/// design doc); Ollama is used when only it is available; None means the app
-/// should show its "not configured" state.
+/// Ollama is preferred when both are configured: configuring a local
+/// endpoint is a deliberate act, and it keeps transcripts on the machine at
+/// no per-call cost. The Claude API key is the backup for when no local
+/// endpoint is set up. None means the app should show its "not configured"
+/// state.
 pub fn select_provider_kind(config: &Config) -> Option<ProviderKind> {
-    if config.claude_api_key.is_some() {
-        Some(ProviderKind::Claude)
-    } else if config.ollama_endpoint.is_some() {
+    if config.ollama_endpoint.is_some() {
         Some(ProviderKind::Ollama)
+    } else if config.claude_api_key.is_some() {
+        Some(ProviderKind::Claude)
     } else {
         None
     }

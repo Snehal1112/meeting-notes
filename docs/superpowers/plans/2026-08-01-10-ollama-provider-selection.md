@@ -4,7 +4,15 @@
 
 **Goal:** Add a local Ollama-backed `SummaryProvider` implementation and provider-selection logic so `summarize_meeting` picks Claude or Ollama based on config, with a clear "not configured" outcome when neither is available.
 
-**Architecture:** `OllamaProvider` implements the same `SummaryProvider` trait against a local Ollama HTTP endpoint using the same JSON-only prompt contract as Claude. A small `select_provider(config)` function centralizes the choice (Claude preferred if both configured, since it noted higher MVP quality in the design) so `summarize_meeting` doesn't hardcode `ClaudeProvider`.
+**Architecture:** `OllamaProvider` implements the same `SummaryProvider` trait against a local Ollama HTTP endpoint using the same JSON-only prompt contract as Claude. A small `select_provider(config)` function centralizes the choice so `summarize_meeting` doesn't hardcode `ClaudeProvider`.
+
+> **Precedence changed during implementation:** this plan was written with
+> Claude preferred when both providers are configured. On the user's
+> instruction the order is now **Ollama first, Claude as the backup** —
+> configuring a local endpoint is a deliberate act, and it keeps transcripts
+> on the machine at no per-call cost. The Task 2 steps below still show the
+> original Claude-first code and tests; `select_provider_kind` and
+> `selection_tests.rs` implement the reversed order.
 
 **Tech Stack:** Rust, `reqwest`, `serde_json`
 
