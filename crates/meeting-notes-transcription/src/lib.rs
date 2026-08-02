@@ -2,8 +2,11 @@ use meeting_notes_core::transcript::{TranscriptResult, TranscriptSegment};
 use std::path::Path;
 use std::process::Command;
 
-/// Locates the bundled whisper.cpp CLI binary. Checks an env var override first,
-/// then falls back to a path relative to the app's resource directory.
+/// Locates the whisper.cpp CLI binary. Checks the `MEETING_NOTES_WHISPER_BIN`
+/// env var override first, then falls back to the bare name "whisper-cli",
+/// which relies on it being resolvable via the process's PATH.
+/// TODO: packaged builds need this resolved via Tauri's resource directory,
+/// not yet implemented.
 fn whisper_binary_path() -> String {
     std::env::var("MEETING_NOTES_WHISPER_BIN").unwrap_or_else(|_| "whisper-cli".to_string())
 }

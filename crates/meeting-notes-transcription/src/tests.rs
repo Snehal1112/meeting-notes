@@ -55,10 +55,66 @@ fn saves_transcript_json_and_txt() {
     save_transcript(&dir, &result).unwrap();
 
     let json = std::fs::read_to_string(dir.join("transcript.json")).unwrap();
-    assert!(json.contains("Hello team."));
+    let parsed: Vec<TranscriptSegment> =
+        serde_json::from_str(&json).expect("transcript.json should round-trip as segments");
+    assert_eq!(parsed.len(), 2);
+    assert_eq!(parsed[0].start_time, 0.0);
+    assert_eq!(parsed[0].end_time, 1.5);
+    assert_eq!(parsed[0].text, "Hello team.");
+    assert_eq!(parsed[1].start_time, 1.5);
+    assert_eq!(parsed[1].end_time, 3.0);
+    assert_eq!(parsed[1].text, "Let's get started.");
 
     let txt = std::fs::read_to_string(dir.join("transcript.txt")).unwrap();
     assert_eq!(txt, "Hello team. Let's get started.");
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn parse_whisper_json_converts_offsets_to_seconds_and_trims_text() {
+    let contents = r#"{
+        "transcription": [
+            {"offsets": {"from": 0, "to": 1500}, "text": " Hello team."},
+            {"offsets": {"from": 1500, "to": 3200}, "text": " Let's get started."}
+        ]
+    }"#;
+
+    let result = parse_whisper_json(contents).expect("valid whisper json should parse");
+
+    assert_eq!(result.segments.len(), 2);
+    assert_eq!(result.segments[0].start_time, 0.0);
+    assert_eq!(result.segments[0].end_time, 1.5);
+    assert_eq!(result.segments[0].text, "Hello team.");
+    assert_eq!(result.segments[1].start_time, 1.5);
+    assert_eq!(result.segments[1].end_time, 3.2);
+    assert_eq!(result.segments[1].text, "Let's get started.");
+}
+
+#[test]
+fn parse_whisper_json_falls_back_when_offsets_missing() {
+    // Documents current fallback behavior (not a desired end state): a segment
+    // missing "offsets" degrades to zeroed timestamps rather than an error,
+    // via the `.unwrap_or(0.0)` in parse_whisper_json.
+    let contents = r#"{
+        "transcription": [
+            {"text": "No offsets here."}
+        ]
+    }"#;
+
+    let result = parse_whisper_json(contents).expect("missing offsets should not error");
+
+    assert_eq!(result.segments.len(), 1);
+    assert_eq!(result.segments[0].start_time, 0.0);
+    assert_eq!(result.segments[0].end_time, 0.0);
+    assert_eq!(result.segments[0].text, "No offsets here.");
+}
+
+#[test]
+fn parse_whisper_json_rejects_malformed_json() {
+    let contents = "not valid json at all {{{";
+
+    let result = parse_whisper_json(contents);
+
+    assert!(result.is_err());
 }
