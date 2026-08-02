@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 #[ignore = "requires real PipeWire/wpctl with an active sink on the dev machine"]
-fn detects_a_monitor_source_when_present() {
+fn detects_a_default_sink_when_present() {
     let result = find_default_sink_id();
     // On a normal desktop with an active sink, this should find something.
     assert!(result.is_some(), "expected a default sink id to be found");
@@ -262,7 +262,11 @@ fn mixes_unequal_length_wavs_treating_missing_samples_as_silence() {
 
     let mut reader = hound::WavReader::open(&out).unwrap();
     let samples: Vec<i16> = reader.samples::<i16>().map(|s| s.unwrap()).collect();
-    assert_eq!(samples.len(), 5, "output length should match the longer input");
+    assert_eq!(
+        samples.len(),
+        5,
+        "output length should match the longer input"
+    );
     assert_eq!(samples[..3], [1100, 2200, 3300]);
     // Trailing samples: a's stream has ended (treated as 0), so these equal
     // b's own values unchanged.
@@ -271,10 +275,156 @@ fn mixes_unequal_length_wavs_treating_missing_samples_as_silence() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `mix_wav_files` must reject inputs with mismatched WAV specs (here: a
+/// different sample rate) rather than silently mixing using only `a_path`'s
+/// spec, which would previously produce garbage output.
+#[test]
+fn mix_wav_files_rejects_mismatched_specs() {
+    let dir = std::env::temp_dir().join(format!("mix-test-mismatch-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let a = dir.join("a.wav");
+    let b = dir.join("b.wav");
+    write_test_wav(&a, &[1000, 2000, 3000]);
+    write_test_wav_with_rate(&b, &[500, 500, 500], 44_100);
+    let out = dir.join("mixed.wav");
+
+    let result = mix_wav_files(&a, &b, &out);
+    assert!(
+        result.is_err(),
+        "expected mix_wav_files to reject mismatched specs, got {:?}",
+        result
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Mic-only path: with `system_path: None`, `finalize_output` should rename
+/// the mic recording into place (after trim/check) and leave nothing behind
+/// at the intermediate mic path.
+#[test]
+fn finalize_output_mic_only_renames_and_trims() {
+    let dir = std::env::temp_dir().join(format!("finalize-mic-only-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mic_path = dir.join("mic.wav");
+    let final_path = dir.join("final.wav");
+
+    let sample_rate = 16_000u32;
+    let trim_count = ((sample_rate as u64 * TRIM_LEADING_MS as u64) / 1000) as usize;
+    let leading: Vec<i16> = vec![0; trim_count];
+    let trailing: Vec<i16> = vec![500; 2000];
+    let samples: Vec<i16> = leading.into_iter().chain(trailing.clone()).collect();
+    write_test_wav(&mic_path, &samples);
+
+    let warning = finalize_output(&mic_path, None, &final_path).expect("should finalize");
+    assert!(warning.is_none(), "expected no warning, got {:?}", warning);
+
+    assert!(final_path.exists(), "expected final output file to exist");
+    assert!(!mic_path.exists(), "expected mic_path to be renamed away");
+
+    let mut reader = hound::WavReader::open(&final_path).unwrap();
+    let out_samples: Vec<i16> = reader.samples::<i16>().map(|s| s.unwrap()).collect();
+    assert_eq!(out_samples, trailing);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Dual-stream success path: with both mic and system files present and
+/// mixable, `finalize_output` should produce a mixed+trimmed final file and
+/// clean up both intermediate files.
+#[test]
+fn finalize_output_dual_stream_mixes_and_cleans_up() {
+    let dir = std::env::temp_dir().join(format!("finalize-dual-ok-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mic_path = dir.join("mic.wav");
+    let system_path = dir.join("system.wav");
+    let final_path = dir.join("final.wav");
+
+    let sample_rate = 16_000u32;
+    let trim_count = ((sample_rate as u64 * TRIM_LEADING_MS as u64) / 1000) as usize;
+    let leading: Vec<i16> = vec![0; trim_count];
+    let mic_trailing: Vec<i16> = vec![300; 2000];
+    let system_trailing: Vec<i16> = vec![200; 2000];
+    let mic_samples: Vec<i16> = leading
+        .iter()
+        .copied()
+        .chain(mic_trailing.clone())
+        .collect();
+    let system_samples: Vec<i16> = leading.into_iter().chain(system_trailing.clone()).collect();
+    write_test_wav(&mic_path, &mic_samples);
+    write_test_wav(&system_path, &system_samples);
+
+    let warning =
+        finalize_output(&mic_path, Some(&system_path), &final_path).expect("should finalize");
+    assert!(warning.is_none(), "expected no warning, got {:?}", warning);
+
+    assert!(final_path.exists(), "expected final output file to exist");
+    assert!(!mic_path.exists(), "expected mic_path to be cleaned up");
+    assert!(
+        !system_path.exists(),
+        "expected system_path to be cleaned up"
+    );
+
+    let mut reader = hound::WavReader::open(&final_path).unwrap();
+    let out_samples: Vec<i16> = reader.samples::<i16>().map(|s| s.unwrap()).collect();
+    let expected: Vec<i16> = mic_trailing
+        .iter()
+        .zip(system_trailing.iter())
+        .map(|(&a, &b)| a + b)
+        .collect();
+    assert_eq!(out_samples, expected);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Dual-stream failure path (the bug fix this task exists for): if the
+/// system-audio file can't be mixed (here: it doesn't exist / isn't a valid
+/// WAV), `finalize_output` must fall back to the mic-only recording rather
+/// than losing it -- i.e. it must return `Ok` with the mic content present at
+/// `final_output_path`, not `Err` with nothing written.
+#[test]
+fn finalize_output_falls_back_to_mic_only_on_mix_failure() {
+    let dir = std::env::temp_dir().join(format!("finalize-dual-fail-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mic_path = dir.join("mic.wav");
+    // Deliberately does not exist / isn't a valid WAV file, so mix_wav_files fails.
+    let system_path = dir.join("does-not-exist.wav");
+    let final_path = dir.join("final.wav");
+
+    let sample_rate = 16_000u32;
+    let trim_count = ((sample_rate as u64 * TRIM_LEADING_MS as u64) / 1000) as usize;
+    let leading: Vec<i16> = vec![0; trim_count];
+    let trailing: Vec<i16> = vec![777; 2000];
+    let samples: Vec<i16> = leading.into_iter().chain(trailing.clone()).collect();
+    write_test_wav(&mic_path, &samples);
+
+    let result = finalize_output(&mic_path, Some(&system_path), &final_path);
+    assert!(
+        result.is_ok(),
+        "expected finalize_output to gracefully fall back to mic-only, got {:?}",
+        result
+    );
+
+    assert!(
+        final_path.exists(),
+        "expected final output file to exist via mic-only fallback"
+    );
+    assert!(!mic_path.exists(), "expected mic_path to be renamed away");
+
+    let mut reader = hound::WavReader::open(&final_path).unwrap();
+    let out_samples: Vec<i16> = reader.samples::<i16>().map(|s| s.unwrap()).collect();
+    assert_eq!(out_samples, trailing);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 fn write_test_wav(path: &std::path::Path, samples: &[i16]) {
+    write_test_wav_with_rate(path, samples, 16000);
+}
+
+fn write_test_wav_with_rate(path: &std::path::Path, samples: &[i16], sample_rate: u32) {
     let spec = hound::WavSpec {
         channels: 1,
-        sample_rate: 16000,
+        sample_rate,
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int,
     };

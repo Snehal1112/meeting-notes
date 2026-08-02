@@ -47,9 +47,12 @@ impl std::fmt::Display for RecordingError {
 impl std::error::Error for RecordingError {}
 
 /// The recording finished and was saved, but its audio characteristics look
-/// like a DC offset or clipping mic hardware/config issue rather than real
-/// captured audio. The (trimmed) file is still written to disk regardless —
-/// this is a quality warning, not a failure.
+/// like a DC offset or clipping issue rather than real captured audio. This
+/// check runs on the final output file, which may be mic-only or a mic+system
+/// mix (see `finalize_output`), so the cause could be either stream -- e.g.
+/// loud system-audio playback can trip the clipping check even with a
+/// perfectly healthy mic. The (trimmed) file is still written to disk
+/// regardless — this is a quality warning, not a failure.
 #[derive(Debug, Clone)]
 pub struct QualityWarning {
     pub dc_offset_mean: f64,
@@ -60,8 +63,8 @@ impl std::fmt::Display for QualityWarning {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "recording captured but looks like a mic hardware/config issue \
-             (DC offset or clipping) rather than real audio \
+            "recording captured but looks like a DC offset or clipping issue \
+             in the audio (mic and/or system audio) rather than clean signal \
              (dc_offset_mean={:.1}, clipping_ratio={:.4})",
             self.dc_offset_mean, self.clipping_ratio
         )
@@ -97,7 +100,7 @@ impl RecordingHandle {
     /// was found and this falls back to mic-only capture.
     pub fn start(final_output_path: &Path) -> std::io::Result<(Self, bool)> {
         let mic_path = final_output_path.with_extension("mic.wav");
-        let mic_child = Command::new("pw-record")
+        let mut mic_child = Command::new("pw-record")
             .args(["--channels=1", "--rate=16000"])
             .arg(&mic_path)
             .spawn()?;
@@ -111,13 +114,24 @@ impl RecordingHandle {
                 // PipeWire audio capture" for why `--target <sink-id> -P
                 // '{ stream.capture.sink=true }'` is required to capture a
                 // sink's own audio (there's no pactl-style monitor source).
-                let child = Command::new("pw-record")
+                match Command::new("pw-record")
                     .args(["--channels=1", "--rate=16000", "--target"])
                     .arg(id.to_string())
                     .args(["-P", "{ stream.capture.sink=true }"])
                     .arg(&sys_path)
-                    .spawn()?;
-                (Some(child), Some(sys_path), true)
+                    .spawn()
+                {
+                    Ok(child) => (Some(child), Some(sys_path), true),
+                    Err(e) => {
+                        // The mic pw-record already spawned successfully; if we
+                        // bail out here without killing it, it keeps recording
+                        // forever with no RecordingHandle (and no Drop guard)
+                        // ever created to watch it.
+                        let _ = mic_child.kill();
+                        let _ = mic_child.wait();
+                        return Err(e);
+                    }
+                }
             }
             None => (None, None, false),
         };
@@ -135,13 +149,14 @@ impl RecordingHandle {
     }
 
     /// Stops the recording(s) by sending SIGTERM so `pw-record` finalizes the
-    /// WAV file(s), then produces the final output at `final_output_path`:
-    /// mixed mic+system audio when system audio was captured, or just the
-    /// mic recording (renamed into place) otherwise. Either way, the leading
-    /// DC-offset settling window is trimmed and the result is checked for
-    /// signs of a DC-offset/clipping mic fault, exactly as before — just now
-    /// applied once to the final (possibly mixed) output rather than the raw
-    /// mic stream.
+    /// WAV file(s), then produces the final output at `final_output_path` via
+    /// `finalize_output`: mixed mic+system audio when system audio was
+    /// captured and mixing succeeds, or just the mic recording (renamed into
+    /// place) otherwise -- including as a graceful fallback if mixing fails.
+    /// Either way, the leading DC-offset settling window is trimmed and the
+    /// result is checked for signs of a DC-offset/clipping issue, exactly as
+    /// before — just now applied once to the final (possibly mixed) output
+    /// rather than the raw mic stream.
     pub fn stop(&mut self) -> Result<Option<QualityWarning>, RecordingError> {
         // pw-record needs a graceful signal (not kill -9) to write valid WAV headers.
         unsafe {
@@ -156,22 +171,11 @@ impl RecordingHandle {
             child.wait()?;
         }
 
-        match &self.system_path {
-            Some(system_path) => {
-                mix_wav_files(&self.mic_path, system_path, &self.final_output_path)
-                    .map_err(RecordingError::Mix)?;
-                // Best-effort cleanup of the intermediate per-stream files;
-                // failure to remove them shouldn't fail an otherwise-successful stop().
-                let _ = std::fs::remove_file(&self.mic_path);
-                let _ = std::fs::remove_file(system_path);
-            }
-            None => {
-                std::fs::rename(&self.mic_path, &self.final_output_path)
-                    .map_err(RecordingError::from)?;
-            }
-        }
-
-        trim_and_check_file(&self.final_output_path)
+        finalize_output(
+            &self.mic_path,
+            self.system_path.as_deref(),
+            &self.final_output_path,
+        )
     }
 
     pub fn output_path(&self) -> &Path {
@@ -193,6 +197,50 @@ impl Drop for RecordingHandle {
             let _ = child.wait();
         }
     }
+}
+
+/// Assembles the final recording from the mic (and, if present, system)
+/// capture files, then runs quality trim/check on the result. On a mix
+/// failure, falls back to the mic-only recording rather than losing it --
+/// the same graceful degradation as "no system sink found at start()".
+/// Factored out of `stop()` as a free function over paths (rather than
+/// `&mut self`) so it can be unit tested against synthetic WAV files without
+/// `pw-record` or real hardware.
+fn finalize_output(
+    mic_path: &Path,
+    system_path: Option<&Path>,
+    final_output_path: &Path,
+) -> Result<Option<QualityWarning>, RecordingError> {
+    match system_path {
+        Some(sys_path) => {
+            if mix_wav_files(mic_path, sys_path, final_output_path).is_err() {
+                // Mixing failed -- fall back to the mic-only recording rather
+                // than losing a perfectly good capture over a bad system stream.
+                std::fs::rename(mic_path, final_output_path)?;
+            }
+            // Else: mix succeeded and final_output_path now holds the mixed
+            // audio. Intermediates are cleaned up below, only after
+            // trim_and_check_file's rewrite succeeds -- NOT before it -- so a
+            // failure there still leaves the mixed file recoverable.
+        }
+        None => {
+            std::fs::rename(mic_path, final_output_path)?;
+        }
+    }
+
+    let warning = trim_and_check_file(final_output_path)?;
+
+    // Best-effort cleanup, now that final_output_path holds a fully-processed
+    // result. mic_path only still exists here if the mix succeeded (the
+    // mic-only and mix-failure-fallback paths above already renamed it away).
+    if system_path.is_some() && mic_path.exists() {
+        let _ = std::fs::remove_file(mic_path);
+    }
+    if let Some(sys_path) = system_path {
+        let _ = std::fs::remove_file(sys_path);
+    }
+
+    Ok(warning)
 }
 
 /// Reads the WAV file at `path`, trims the leading DC-offset settling window,
@@ -233,8 +281,7 @@ fn analyze_and_trim(samples: &[i16], sample_rate: u32) -> (Vec<i16>, Option<Qual
     }
 
     let remaining = &samples[trim_count..];
-    let dc_offset_mean =
-        remaining.iter().map(|&s| s as f64).sum::<f64>() / remaining.len() as f64;
+    let dc_offset_mean = remaining.iter().map(|&s| s as f64).sum::<f64>() / remaining.len() as f64;
     let clipped = remaining
         .iter()
         .filter(|&&s| s.unsigned_abs() as i32 >= CLIPPING_SAMPLE_THRESHOLD as i32)
@@ -319,6 +366,13 @@ pub fn mix_wav_files(a_path: &Path, b_path: &Path, out_path: &Path) -> Result<()
     let mut a_reader = hound::WavReader::open(a_path).map_err(|e| e.to_string())?;
     let mut b_reader = hound::WavReader::open(b_path).map_err(|e| e.to_string())?;
     let spec = a_reader.spec();
+    let b_spec = b_reader.spec();
+    if spec != b_spec {
+        return Err(format!(
+            "cannot mix WAVs with mismatched specs: {a_path:?} has {spec:?}, \
+             {b_path:?} has {b_spec:?}"
+        ));
+    }
 
     let a_samples: Vec<i16> = a_reader.samples::<i16>().filter_map(|s| s.ok()).collect();
     let b_samples: Vec<i16> = b_reader.samples::<i16>().filter_map(|s| s.ok()).collect();
