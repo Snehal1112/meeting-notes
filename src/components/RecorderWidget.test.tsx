@@ -534,3 +534,71 @@ describe("RecorderWidget done state tabs", () => {
     expect(await screen.findByRole("button", { name: /start recording/i })).toBeInTheDocument();
   });
 });
+
+describe("RecorderWidget transcription failure recovery", () => {
+  it("shows a retry option when transcription fails", async () => {
+    const { transcribeMeeting } = await import("@/lib/transcription");
+    vi.mocked(transcribeMeeting).mockRejectedValueOnce(
+      new Error("whisper.cpp exited with status 1")
+    );
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+
+    expect(await screen.findByText(/transcription failed/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("re-runs transcription when Retry is clicked", async () => {
+    const { transcribeMeeting } = await import("@/lib/transcription");
+    vi.mocked(transcribeMeeting).mockRejectedValueOnce(new Error("whisper.cpp not found"));
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+
+    const retry = await screen.findByRole("button", { name: /retry/i });
+    expect(transcribeMeeting).toHaveBeenCalledTimes(1);
+    fireEvent.click(retry);
+    await vi.waitFor(() => expect(transcribeMeeting).toHaveBeenCalledTimes(2));
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("clears the failure and returns to Transcribing while a retry is in flight", async () => {
+    const { transcribeMeeting } = await import("@/lib/transcription");
+    vi.mocked(transcribeMeeting).mockRejectedValueOnce(new Error("whisper.cpp not found"));
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+
+    // The retry succeeds (the mock only rejects once), so the error must
+    // clear rather than linger next to a live "Transcribing…" status.
+    fireEvent.click(await screen.findByRole("button", { name: /retry/i }));
+    await vi.waitFor(() => {
+      expect(screen.queryByText(/transcription failed/i)).not.toBeInTheDocument();
+      expect(screen.getByText(/transcribing/i)).toBeInTheDocument();
+    });
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("still reports the underlying error message alongside the retry option", async () => {
+    const { transcribeMeeting } = await import("@/lib/transcription");
+    vi.mocked(transcribeMeeting).mockRejectedValueOnce(
+      new Error("whisper.cpp binary not found")
+    );
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/whisper\.cpp binary not found/i);
+    consoleErrorSpy.mockRestore();
+  });
+});

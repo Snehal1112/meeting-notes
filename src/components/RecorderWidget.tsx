@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { startRecording, stopRecording } from "@/lib/recording";
@@ -52,6 +52,25 @@ export function RecorderWidget() {
   // transcription failure here must not look like data loss — it's surfaced
   // via transcriptionError instead of leaving the widget stuck silently.
   //
+  // Kicks off whisper.cpp for the current meeting. Shared by the processing
+  // effect below and the Retry button, so a retry re-runs the exact same
+  // path. `isCancelled` lets the effect abandon its own invocation without
+  // the retry path needing any cancellation concept — a retry is always
+  // live, since the user just clicked it.
+  const runTranscription = useCallback(async (isCancelled: () => boolean = () => false) => {
+    setTranscriptionError(null);
+    setProcessingStatus("transcribing");
+    try {
+      const config = await getConfig();
+      if (isCancelled()) return;
+      await transcribeMeeting(currentMeetingRef.current!, config.whisper_model ?? "base.en");
+    } catch (err) {
+      if (isCancelled()) return;
+      console.error("Transcription failed:", errorMessage(err));
+      setTranscriptionError(errorMessage(err));
+    }
+  }, []);
+
   // React.StrictMode (see src/main.tsx) double-invokes effects in dev:
   // mount -> run -> cleanup -> run again. Without the `cancelled` checks
   // below, that would fire two concurrent real whisper.cpp subprocesses (via
@@ -112,16 +131,7 @@ export function RecorderWidget() {
         return;
       }
 
-      try {
-        const config = await getConfig();
-        if (cancelled) return;
-        await transcribeMeeting(currentMeetingRef.current!, config.whisper_model ?? "base.en");
-      } catch (err) {
-        if (!cancelled) {
-          console.error("Transcription failed:", errorMessage(err));
-          setTranscriptionError(`Transcription failed: ${errorMessage(err)}`);
-        }
-      }
+      await runTranscription(() => cancelled);
     })();
 
     return () => {
@@ -269,9 +279,17 @@ export function RecorderWidget() {
       <div className="flex flex-col gap-2 h-full justify-center items-center text-sm text-muted-foreground">
         {qualityWarning && <span className="text-xs text-amber-600">{qualityWarning}</span>}
         {transcriptionError ? (
-          <span role="alert" className="text-xs text-red-600">
-            {transcriptionError}
-          </span>
+          // The audio is always preserved on disk, so this is recoverable:
+          // offer the retry rather than sending the user back to idle. The
+          // underlying error sits alongside it so a missing binary or bad
+          // model name is diagnosable, not just "it failed".
+          <div role="alert" className="flex flex-col items-center gap-2">
+            <span className="text-xs text-red-600">Transcription failed</span>
+            <span className="text-xs text-muted-foreground">{transcriptionError}</span>
+            <Button size="sm" variant="outline" onClick={() => runTranscription()}>
+              Retry
+            </Button>
+          </div>
         ) : (
           <span>{processingStatus === "transcribing" ? "Transcribing…" : "Generating summary…"}</span>
         )}
