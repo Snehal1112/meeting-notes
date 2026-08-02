@@ -35,3 +35,27 @@ fn update_status_persists_change() {
     assert_eq!(index[0].status, MeetingStatus::Done);
     assert_eq!(index[0].duration_seconds, Some(1800));
 }
+
+#[test]
+fn load_index_errors_on_corrupt_json() {
+    let base = tempdir().unwrap();
+    std::fs::write(base.path().join("index.json"), "{invalid json").unwrap();
+
+    let result = load_index(base.path());
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
+}
+
+#[test]
+fn update_meeting_errors_when_id_not_found() {
+    let base = tempdir().unwrap();
+    let meta = create_meeting(base.path(), "Standup").unwrap();
+    append_to_index(base.path(), &meta).unwrap();
+
+    let mut other_meta = create_meeting(base.path(), "Other").unwrap();
+    other_meta.id = "nonexistent-id".to_string();
+
+    let result = update_meeting(base.path(), &other_meta);
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::NotFound);
+}

@@ -39,7 +39,8 @@ pub fn load_index(base: &Path) -> std::io::Result<Vec<MeetingMeta>> {
         return Ok(Vec::new());
     }
     let contents = std::fs::read_to_string(path)?;
-    Ok(serde_json::from_str(&contents).unwrap_or_default())
+    serde_json::from_str(&contents)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
 }
 
 fn save_index(base: &Path, index: &[MeetingMeta]) -> std::io::Result<()> {
@@ -55,8 +56,14 @@ pub fn append_to_index(base: &Path, meta: &MeetingMeta) -> std::io::Result<()> {
 
 pub fn update_meeting(base: &Path, updated: &MeetingMeta) -> std::io::Result<()> {
     let mut index = load_index(base)?;
-    if let Some(entry) = index.iter_mut().find(|m| m.id == updated.id) {
-        *entry = updated.clone();
+    match index.iter_mut().find(|m| m.id == updated.id) {
+        Some(entry) => *entry = updated.clone(),
+        None => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("meeting {} not found in index", updated.id),
+            ));
+        }
     }
     save_index(base, &index)
 }
