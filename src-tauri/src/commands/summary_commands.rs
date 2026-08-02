@@ -11,7 +11,17 @@ pub async fn summarize_meeting(app: AppHandle, meeting_id: String) -> Result<Sum
     let base = base_dir().ok_or("could not resolve data directory")?;
     let meeting = find_meeting(&base, &meeting_id)?;
 
-    let (result, updated) = run_summarize_or_mark_failed(&base, meeting).await?;
+    // "No provider configured" is a distinct, benign, recoverable state per
+    // the design spec (transcript stays valid; summary shows as "Not
+    // generated") — not a failure. Check for it and return early, before
+    // entering run_summarize_or_mark_failed's failure-marking wrapper, so
+    // this error path never touches the meeting's status in the index.
+    let config = resolve_config();
+    let Some(api_key) = config.claude_api_key else {
+        return Err("no_provider_configured".to_string());
+    };
+
+    let (result, updated) = run_summarize_or_mark_failed(&base, meeting, api_key).await?;
     app.emit("summary-complete", &updated)
         .map_err(|e| e.to_string())?;
     Ok(result)
@@ -24,8 +34,9 @@ pub async fn summarize_meeting(app: AppHandle, meeting_id: String) -> Result<Sum
 async fn run_summarize_or_mark_failed(
     base: &Path,
     meeting: MeetingMeta,
+    api_key: String,
 ) -> Result<(SummaryResult, MeetingMeta), String> {
-    match run_summarize(base, meeting.clone()).await {
+    match run_summarize(base, meeting.clone(), api_key).await {
         Ok(ok) => Ok(ok),
         Err(e) => {
             // Don't leave the meeting stuck at "Summarizing" forever if the
@@ -46,15 +57,11 @@ async fn run_summarize_or_mark_failed(
 async fn run_summarize(
     base: &Path,
     meeting: MeetingMeta,
+    api_key: String,
 ) -> Result<(SummaryResult, MeetingMeta), String> {
     let meeting_dir = meeting.dir_path(base);
     let transcript = std::fs::read_to_string(meeting_dir.join("transcript.txt"))
         .map_err(|e| format!("could not read transcript: {e}"))?;
-
-    let config = resolve_config();
-    let Some(api_key) = config.claude_api_key else {
-        return Err("no_provider_configured".to_string());
-    };
 
     let provider = ClaudeProvider::new(api_key);
     let result = provider.generate(&transcript).await?;
@@ -238,8 +245,11 @@ mod tests {
         let meeting = create_meeting(&base, "Test meeting").expect("create meeting");
         append_to_index(&base, &meeting).expect("append to index");
 
-        let result =
-            tauri::async_runtime::block_on(run_summarize_or_mark_failed(&base, meeting.clone()));
+        let result = tauri::async_runtime::block_on(run_summarize_or_mark_failed(
+            &base,
+            meeting.clone(),
+            "dummy-api-key".to_string(),
+        ));
         assert!(result.is_err());
 
         let index = load_index(&base).expect("load index");
