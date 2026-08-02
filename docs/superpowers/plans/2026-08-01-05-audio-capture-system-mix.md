@@ -1,6 +1,6 @@
 # Audio Capture (System Audio + Mixing) Implementation Plan
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Extend recording to also capture system audio (the PipeWire monitor source) alongside mic input, mixed into a single WAV, with graceful mic-only fallback when no monitor source exists.
 
@@ -18,7 +18,7 @@
 - Modify: `crates/meeting-notes-audio/src/lib.rs`
 - Modify: `crates/meeting-notes-audio/src/tests.rs`
 
-- [ ] **Step 1: Write failing test for monitor source detection**
+- [x] **Step 1: Write failing test for monitor source detection**
 
 ```rust
 #[test]
@@ -30,12 +30,12 @@ fn detects_a_monitor_source_when_present() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test -p meeting-notes-audio -- --ignored --nocapture`
 Expected: FAIL — `find_monitor_source` not defined.
 
-- [ ] **Step 3: Implement detection via pactl**
+- [x] **Step 3: Implement detection via pactl**
 
 ```rust
 // crates/meeting-notes-audio/src/lib.rs (additions)
@@ -59,12 +59,12 @@ pub fn find_monitor_source() -> Option<String> {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cargo test -p meeting-notes-audio -- --ignored --nocapture` (on Ubuntu dev machine)
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/meeting-notes-audio/src
@@ -79,7 +79,7 @@ git commit -m "feat: detect PipeWire/PulseAudio monitor source for system audio"
 - Modify: `crates/meeting-notes-audio/src/lib.rs`
 - Modify: `crates/meeting-notes-audio/src/tests.rs`
 
-- [ ] **Step 1: Write failing test for mixing two WAVs**
+- [x] **Step 1: Write failing test for mixing two WAVs**
 
 ```rust
 #[test]
@@ -116,12 +116,12 @@ fn write_test_wav(path: &std::path::Path, samples: &[i16]) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test -p meeting-notes-audio mixes_two_equal_length_wavs -- --nocapture`
 Expected: FAIL — `mix_wav_files` not defined.
 
-- [ ] **Step 3: Implement mixing with clipping-safe saturation**
+- [x] **Step 3: Implement mixing with clipping-safe saturation**
 
 ```rust
 // crates/meeting-notes-audio/src/lib.rs (additions)
@@ -150,12 +150,12 @@ pub fn mix_wav_files(a_path: &Path, b_path: &Path, out_path: &Path) -> Result<()
 
 Add `hound` dependency if not already present: `cd crates/meeting-notes-audio && cargo add hound`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cargo test -p meeting-notes-audio mixes_two_equal_length_wavs -- --nocapture`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/meeting-notes-audio/src
@@ -171,7 +171,7 @@ git commit -m "feat: mix two WAV streams with clipping-safe saturation"
 - Modify: `src-tauri/src/commands/recording_commands.rs`
 - Modify: `src/lib/recording.ts`
 
-- [ ] **Step 1: Extend RecordingHandle to optionally track a system-audio child**
+- [x] **Step 1: Extend RecordingHandle to optionally track a system-audio child**
 
 ```rust
 // crates/meeting-notes-audio/src/lib.rs (modify RecordingHandle)
@@ -241,7 +241,7 @@ impl RecordingHandle {
 
 Remove the old `start_mic` in favor of `start`; update the mic-only test from plan 04 to call `RecordingHandle::start` and assert on the returned `used_system_audio` bool.
 
-- [ ] **Step 2: Update Tauri commands to surface the fallback flag**
+- [x] **Step 2: Update Tauri commands to surface the fallback flag**
 
 ```rust
 // src-tauri/src/commands/recording_commands.rs (modify start_recording)
@@ -263,7 +263,7 @@ pub fn start_recording(
 
 Update `stop_recording` to call the new `stop()` signature (`Result<(), String>` instead of `std::io::Result`).
 
-- [ ] **Step 3: Update TypeScript wrapper's return type**
+- [x] **Step 3: Update TypeScript wrapper's return type**
 
 ```ts
 // src/lib/recording.ts
@@ -271,12 +271,12 @@ export const startRecording = (outputPath: string) =>
   invoke<boolean>("start_recording", { outputPath }); // returns usedSystemAudio
 ```
 
-- [ ] **Step 4: Manual verification**
+- [x] **Step 4: Manual verification**
 
 Run: `bun run tauri dev`, play audio/video with sound while recording, call `startRecording` then `stopRecording` after a few seconds.
 Expected: mixed `audio.wav` contains both your mic input and the played-back system audio audibly. Returned boolean is `true` when a monitor source exists.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/meeting-notes-audio/src src-tauri/src/commands/recording_commands.rs src/lib/recording.ts
