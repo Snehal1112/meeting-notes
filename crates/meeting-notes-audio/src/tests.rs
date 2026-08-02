@@ -222,3 +222,63 @@ fn trim_and_check_file_rewrites_wav_and_flags_dc_offset() {
 
     let _ = std::fs::remove_file(&tmp);
 }
+
+#[test]
+fn mixes_two_equal_length_wavs() {
+    let dir = std::env::temp_dir().join(format!("mix-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let a = dir.join("a.wav");
+    let b = dir.join("b.wav");
+    write_test_wav(&a, &[1000, 2000, 3000]);
+    write_test_wav(&b, &[500, 500, 500]);
+    let out = dir.join("mixed.wav");
+
+    mix_wav_files(&a, &b, &out).expect("mix should succeed");
+
+    let mut reader = hound::WavReader::open(&out).unwrap();
+    let samples: Vec<i16> = reader.samples::<i16>().map(|s| s.unwrap()).collect();
+    assert_eq!(samples, vec![1500, 2500, 3500]);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// When the two inputs differ in length, the output must match the longer
+/// input's length, and the trailing samples (past the shorter input's end)
+/// must equal the longer input's own values unchanged, since the missing
+/// side contributes silence (0).
+#[test]
+fn mixes_unequal_length_wavs_treating_missing_samples_as_silence() {
+    let dir = std::env::temp_dir().join(format!("mix-test-unequal-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let a = dir.join("a.wav");
+    let b = dir.join("b.wav");
+    write_test_wav(&a, &[1000, 2000, 3000]);
+    write_test_wav(&b, &[100, 200, 300, 400, 500]);
+    let out = dir.join("mixed.wav");
+
+    mix_wav_files(&a, &b, &out).expect("mix should succeed");
+
+    let mut reader = hound::WavReader::open(&out).unwrap();
+    let samples: Vec<i16> = reader.samples::<i16>().map(|s| s.unwrap()).collect();
+    assert_eq!(samples.len(), 5, "output length should match the longer input");
+    assert_eq!(samples[..3], [1100, 2200, 3300]);
+    // Trailing samples: a's stream has ended (treated as 0), so these equal
+    // b's own values unchanged.
+    assert_eq!(samples[3..], [400, 500]);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn write_test_wav(path: &std::path::Path, samples: &[i16]) {
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: 16000,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut writer = hound::WavWriter::create(path, spec).unwrap();
+    for s in samples {
+        writer.write_sample(*s).unwrap();
+    }
+    writer.finalize().unwrap();
+}

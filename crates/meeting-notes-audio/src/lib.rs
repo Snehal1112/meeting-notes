@@ -238,5 +238,30 @@ fn parse_default_sink_id(wpctl_status_output: &str) -> Option<u32> {
     None
 }
 
+/// Mixes two WAV files sample-by-sample into `out_path`, using the WAV spec
+/// (channels, sample rate, bit depth) of `a_path`. Samples are summed and
+/// clamped to the `i16` range to avoid wraparound on clipping. If the two
+/// inputs have different lengths, the shorter one is treated as silent (0)
+/// for the remaining samples, so the output length matches the longer input.
+pub fn mix_wav_files(a_path: &Path, b_path: &Path, out_path: &Path) -> Result<(), String> {
+    let mut a_reader = hound::WavReader::open(a_path).map_err(|e| e.to_string())?;
+    let mut b_reader = hound::WavReader::open(b_path).map_err(|e| e.to_string())?;
+    let spec = a_reader.spec();
+
+    let a_samples: Vec<i16> = a_reader.samples::<i16>().filter_map(|s| s.ok()).collect();
+    let b_samples: Vec<i16> = b_reader.samples::<i16>().filter_map(|s| s.ok()).collect();
+    let len = a_samples.len().max(b_samples.len());
+
+    let mut writer = hound::WavWriter::create(out_path, spec).map_err(|e| e.to_string())?;
+    for i in 0..len {
+        let a = *a_samples.get(i).unwrap_or(&0) as i32;
+        let b = *b_samples.get(i).unwrap_or(&0) as i32;
+        let mixed = (a + b).clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+        writer.write_sample(mixed).map_err(|e| e.to_string())?;
+    }
+    writer.finalize().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests;
