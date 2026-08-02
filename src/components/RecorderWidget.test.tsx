@@ -125,6 +125,34 @@ describe("RecorderWidget meeting storage integration", () => {
     );
   });
 
+  it("marks the meeting Failed in the index when startRecording rejects after createNewMeeting resolves", async () => {
+    const { startRecording } = await import("@/lib/recording");
+    const { updateMeetingStatus } = await import("@/lib/storage");
+    vi.mocked(startRecording).mockRejectedValueOnce(new Error("mic busy"));
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/mic busy/i);
+    await vi.waitFor(() =>
+      expect(updateMeetingStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ id: fakeMeeting.id, status: "Failed" })
+      )
+    );
+  });
+
+  it("persists the real used_system_audio value returned by startRecording", async () => {
+    const { startRecording } = await import("@/lib/recording");
+    const { updateMeetingStatus } = await import("@/lib/storage");
+    vi.mocked(startRecording).mockResolvedValueOnce(true);
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+    await vi.waitFor(() =>
+      expect(updateMeetingStatus).toHaveBeenCalledWith(
+        expect.objectContaining({ id: fakeMeeting.id, used_system_audio: true })
+      )
+    );
+  });
+
   it("still transitions to processing when updateMeetingStatus fails", async () => {
     const { updateMeetingStatus } = await import("@/lib/storage");
     vi.mocked(updateMeetingStatus).mockRejectedValueOnce(new Error("index write failed"));

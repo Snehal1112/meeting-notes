@@ -46,10 +46,21 @@ export function RecorderWidget() {
       currentMeetingRef.current = meeting;
       const outputPath = `${await meetingsDataDir()}/meetings/${meeting.id}/audio.wav`;
       const usedSystemAudio = await startRecording(outputPath);
+      currentMeetingRef.current = { ...currentMeetingRef.current, used_system_audio: usedSystemAudio };
       setMicOnlyWarning(!usedSystemAudio);
       startedAtRef.current = Date.now();
       setState("recording");
     } catch (err) {
+      // If the meeting entry was already committed to the index but recording
+      // never actually started, mark it Failed so it isn't mistaken for a
+      // crashed/interrupted session by orphan detection. Best-effort: don't
+      // let a failure here mask the original error.
+      if (currentMeetingRef.current) {
+        updateMeetingStatus({ ...currentMeetingRef.current, status: "Failed" }).catch((e) =>
+          console.error("Failed to mark meeting failed:", errorMessage(e))
+        );
+        currentMeetingRef.current = null;
+      }
       setRecordingError(`Could not start recording: ${errorMessage(err)}`);
     } finally {
       setBusy(false);
