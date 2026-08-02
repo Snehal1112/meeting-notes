@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { TitleBar } from "@/components/TitleBar";
 import { ConfigDialog } from "@/components/ConfigDialog";
+import { RecorderWidget } from "@/components/RecorderWidget";
 import { configNeedsSetup, saveConfig, type AppConfig } from "@/lib/config";
 import { useAutoResizeWindow } from "@/hooks/useAutoResizeWindow";
 
@@ -29,7 +30,9 @@ function App() {
       {showConfigDialog ? (
         <ConfigDialog open={showConfigDialog} onSave={handleSave} onSkip={handleSkip} />
       ) : (
-        <div className="flex-1 p-4">{/* widget content goes here */}</div>
+        <div className="flex-1 p-4">
+          <RecorderWidget />
+        </div>
       )}
     </div>
   );
