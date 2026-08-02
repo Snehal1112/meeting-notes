@@ -59,5 +59,19 @@ fn parse_whisper_json(contents: &str) -> Result<TranscriptResult, String> {
     Ok(TranscriptResult { segments })
 }
 
+pub fn save_transcript(meeting_dir: &Path, result: &TranscriptResult) -> std::io::Result<()> {
+    let json = serde_json::to_string_pretty(&result.segments)?;
+    std::fs::write(meeting_dir.join("transcript.json"), json)?;
+
+    let plain_text = result
+        .segments
+        .iter()
+        .map(|s| s.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    std::fs::write(meeting_dir.join("transcript.txt"), plain_text)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests;

@@ -40,3 +40,25 @@ fn transcribes_a_short_sample_wav() {
     assert!(!result.segments.is_empty());
     assert!(result.segments[0].text.to_lowercase().contains("country"));
 }
+
+#[test]
+fn saves_transcript_json_and_txt() {
+    let dir = std::env::temp_dir().join(format!("transcript-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let result = TranscriptResult {
+        segments: vec![
+            TranscriptSegment { start_time: 0.0, end_time: 1.5, text: "Hello team.".into() },
+            TranscriptSegment { start_time: 1.5, end_time: 3.0, text: "Let's get started.".into() },
+        ],
+    };
+
+    save_transcript(&dir, &result).unwrap();
+
+    let json = std::fs::read_to_string(dir.join("transcript.json")).unwrap();
+    assert!(json.contains("Hello team."));
+
+    let txt = std::fs::read_to_string(dir.join("transcript.txt")).unwrap();
+    assert_eq!(txt, "Hello team. Let's get started.");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
