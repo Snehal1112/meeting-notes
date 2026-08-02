@@ -13,16 +13,30 @@ export function Waveform({ active }: WaveformProps) {
 
     let audioContext: AudioContext | undefined;
     let stream: MediaStream | undefined;
+    let cancelled = false;
 
     const setup = async () => {
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Check if effect was cancelled while awaiting permission.
+        if (cancelled) {
+          stream?.getTracks().forEach((t) => t.stop());
+          return;
+        }
+
         audioContext = new AudioContext();
         const source = audioContext.createMediaStreamSource(stream);
         const analyser = audioContext.createAnalyser();
         analyser.fftSize = 64;
         source.connect(analyser);
         const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+        // Check if effect was cancelled before starting draw loop.
+        if (cancelled) {
+          audioContext.close();
+          stream?.getTracks().forEach((t) => t.stop());
+          return;
+        }
 
         const draw = () => {
           const canvas = canvasRef.current;
@@ -53,6 +67,7 @@ export function Waveform({ active }: WaveformProps) {
     setup();
 
     return () => {
+      cancelled = true;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       stream?.getTracks().forEach((t) => t.stop());
       audioContext?.close();
