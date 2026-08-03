@@ -7,20 +7,22 @@
 ## 1. Overview & Goals
 
 A small, always-on-top floating desktop widget (Tauri + Rust + React/TypeScript +
-shadcn/ui) that records a live meeting's audio (mic + system audio) on Linux
-(Ubuntu, PipeWire), transcribes it locally with whisper.cpp, and generates a
-summary + flat action-item list via a pluggable LLM provider (Claude API or local
-Ollama).
+shadcn/ui) that records a live meeting's audio (mic + system audio) on **Linux
+(Ubuntu, PipeWire) and macOS (ScreenCaptureKit)**, transcribes it locally with
+whisper.cpp, and generates a summary + flat action-item list via a pluggable LLM
+provider (Claude API or local Ollama).
 
 **Positioning:** standalone product/self-hostable tool, portfolio project, and MVP
 to validate the concept — not tied to NumericLabs/NHe4a.
 
 **Explicitly out of scope for this MVP:**
-- Speaker diarization / identification
-- Structured action items (assignee, due date)
+- Speaker diarization / identification (audio-based who-said-what; text-based
+  attendee inference from transcript content is now in scope — see Section 6)
+- Due dates on action items (assignee is now in scope; due date remains
+  deferred)
 - Meeting list / history browser UI
 - Settings screen (replaced by first-launch config dialog + config file/env vars)
-- macOS / Windows support (Linux/Ubuntu only for now)
+- Windows support
 - Meeting-platform bot integration (Zoom/Meet API) — noted as a future direction,
   not part of this build
 
@@ -73,27 +75,51 @@ to validate the concept — not tied to NumericLabs/NHe4a.
         └── action_items.json           # flat list of extracted todos
 ```
 
-- `index.json`: array of meeting metadata (title, date, duration, status) — even
-  though there's no list UI in this MVP, this keeps a record on disk and makes a
-  future list view a pure UI addition, not a data-model change.
+- `index.json`: array of meeting metadata (title, **meeting type**, date, duration,
+  status) — even though there's no list UI in this MVP, this keeps a record on
+  disk and makes a future list view a pure UI addition, not a data-model change.
 - `transcript.json`: array of `{ start_time, end_time, text }` segments — kept
   even without diarization so a future speaker field can be added without a
   format change.
-- `action_items.json`: array of `{ id, text, completed }`.
+- `action_items.json`: array of `{ id, text, assignee: Option<String>, completed }`
+  — `assignee` is populated when the LLM confidently attributes an action item to
+  a named participant identified from the transcript text (see Section 6), and
+  left `null` otherwise rather than guessing.
 
-## 4. Audio Capture (Rust backend)
+## 4. Audio Capture (Rust backend, cross-platform)
 
-- PipeWire on Ubuntu 22.04+ — capture **mic input** and **system audio (monitor
-  source)** simultaneously, mixed into a single `audio.wav`.
-- Implementation: `pipewire-rs` crate, with `parec`/`pw-record` shell-out as a
-  simpler v1 fallback if the crate proves heavy. Mixing done via basic sample
-  summing; written out via the `hound` crate.
+`meeting-notes-audio` exposes one public API — `RecordingHandle::start(path) ->
+(Self, used_system_audio: bool)`, `.stop()`, `.output_path()` — used identically
+by every other crate and by `src-tauri`. Internally it dispatches to a
+platform-specific backend via `#[cfg(target_os = "...")]`, so nothing above this
+crate needs to know which OS it's running on.
+
+**Linux (Ubuntu 22.04+, PipeWire):**
+- Capture **mic input** and **system audio (monitor source)** simultaneously via
+  `pw-record` shell-outs, mixed into a single `audio.wav`.
+- Mixing done via basic sample summing; written out via the `hound` crate.
+
+**macOS (13+, ScreenCaptureKit):**
+- Capture **mic input** via the `cpal` crate (cross-platform Rust audio I/O,
+  backed by CoreAudio on macOS).
+- Capture **system audio** via ScreenCaptureKit's audio-capture APIs (macOS
+  13+), using an `SCStream` configured with `capturesAudio = true` and no video
+  output — no virtual audio driver (e.g. BlackHole) required.
+- Both streams mixed into `audio.wav` via the same `hound`-based mixing logic
+  used on Linux (platform-agnostic — it operates on WAV files, not on capture
+  internals).
+- Requires the user to grant Screen Recording permission (macOS prompts for this
+  automatically on first capture attempt) and Microphone permission.
+
+**Common to both platforms:**
 - Dual-track (separate mic/system files) deferred — noted as the natural
   foundation for future speaker diarization.
 
 **Failure handling:**
-- No monitor source found → fall back to mic-only, show a warning badge in the
-  widget ("System audio unavailable — recording mic only").
+- No monitor source (Linux) / no Screen Recording permission (macOS) → fall back
+  to mic-only silently; tracked via `used_system_audio` on `MeetingMeta` rather
+  than shown as a warning during recording (the compact pill has no room for one
+  — see Section 8).
 - Recording interrupted (crash/sleep) → partial audio file preserved; on next
   launch, detect orphaned recordings and offer to resume transcription on them.
 
@@ -116,16 +142,57 @@ to validate the concept — not tied to NumericLabs/NHe4a.
   - **Claude API** — sends `transcript.txt` with a structured prompt, requests
     JSON back.
   - **Ollama (local)** — same prompt/contract over local HTTP.
-- Provider selection is a user setting (config file/env var/first-launch dialog),
-  transparent to the UI.
-- Expected LLM output contract:
-  ```json
-  {
-    "summary": "...",
-    "action_items": ["...", "..."]
-  }
-  ```
-  Deliberately simple — no assignee/due-date extraction in this MVP (fast-follow).
+- **Provider selection is no longer purely a background config default.** The
+  widget shows a picker (defaulting to whichever provider `resolve_config()`
+  would auto-select) before summarization starts, and the Done state offers
+  "Regenerate with [other provider]" so the user can compare Claude vs. Ollama
+  output on the same transcript without re-recording.
+- **Attendee identification is text-based, not audio-based.** Speaker
+  diarization (who-said-what by voice) remains explicitly out of scope — instead,
+  the LLM is prompted to infer participant names from what's actually said in the
+  transcript (self-introductions, being addressed by name, etc.) and return an
+  `attendees` list. This is inherently best-effort: if no names are confidently
+  identifiable from the conversation content, the list is empty rather than
+  guessing, and the UI reflects that plainly rather than implying certainty.
+- **Meeting types** drive which summary structure is used. Supported types:
+  Standup, Retrospective, Feature Request, Incident, and a generic/Auto-detect
+  fallback. Per current scope: **Standup, Incident, and Feature Request meetings
+  use the Notion-style generic format**; **Retrospective (and Auto-detect, when
+  the LLM can't confidently match a specific type) uses a type-specific
+  structure**. The user can pick a type explicitly at recording start, or leave
+  it on "Auto-detect" and let the LLM classify it from the transcript.
+
+**Notion-style format** (Standup, Incident, Feature Request, and the default
+for Auto-detect when no more specific structure applies):
+```json
+{
+  "meeting_type": "incident",
+  "attendees": ["..."],
+  "discussion_notes": "...",
+  "decisions": ["..."],
+  "action_items": [{ "text": "...", "assignee": "..." }]
+}
+```
+Rendered to `summary.md` as Notion's canonical structure: **Attendees**,
+**Discussion Notes**, **Decisions**, **Action Items** (checklist, each with an
+assignee where identified).
+
+**Type-specific format** (Retrospective, and any other custom type not mapped to
+the Notion-style default):
+```json
+{
+  "meeting_type": "retrospective",
+  "attendees": ["..."],
+  "what_went_well": ["..."],
+  "what_didnt_go_well": ["..."],
+  "action_items": [{ "text": "...", "assignee": "..." }]
+}
+```
+Each supported type has its own prompt template and JSON shape; new types can be
+added by defining a new template + shape pair without touching the provider
+implementations themselves (Claude/Ollama just execute whichever prompt they're
+given).
+
 - If neither provider is configured, transcript is still shown; summary/action
   items show a "Not generated — configure a provider" state.
 
@@ -143,29 +210,54 @@ No settings screen. Configuration resolved in this precedence order:
 ## 8. Frontend — Floating Recorder Widget
 
 **Window (Tauri config):**
-- Small fixed size (~400×300px), always-on-top, frameless/borderless with a
-  custom draggable title bar.
+- Transparent, always-on-top, frameless/borderless. Window size and chrome are
+  **state-dependent** rather than fixed:
+  - Idle / Done: ~400×300px card with a custom draggable title bar.
+  - Recording: the window shrinks to a small pill (~224×56px) with **no title
+    bar or card chrome at all** — just the floating docket (pulsing indicator,
+    timer, compact waveform, icon-only stop button) on transparent space,
+    draggable by its own body.
+  - Processing: same chrome-less pill treatment, slightly wider (~260×56px) —
+    spinner + status text, plus a compact provider picker (Claude/Ollama) once
+    summarization actually starts and more than one provider is configured.
+  This matches Notion's own recording/processing indicators rather than
+  looking like a shrunken dialog at any point before the meeting is done.
 - This widget **is** the entire app UI for this MVP — no navigation, no meeting
   list.
 
+**Visual language:** modernized beyond shadcn's bare defaults — a defined
+spacing scale, refined typography (weight/size hierarchy for title vs. body vs.
+metadata text), subtle elevation/shadow on the floating card, and small
+transition/motion cues between states so it doesn't feel like a raw
+component-library scaffold.
+
 **States:**
-1. **Idle** — "Start Recording" button, optional meeting title input (defaults to
-   timestamp).
+1. **Idle** — "Start Recording" button, optional meeting title input (defaults
+   to timestamp), **meeting type selector** (Standup / Retrospective / Feature
+   Request / Incident / Auto-detect, defaulting to Auto-detect).
 2. **Recording** — live waveform (Web Audio API `AnalyserNode`, styled per
    reference image: dot-based reactive waveform), elapsed timer, "Stop Recording"
    button.
 3. **Processing** — sequential status text ("Transcribing…" → "Generating
-   summary…") with spinner/progress indicator.
-4. **Done** — compact summary (scrollable), action items as a checklist
-   (shadcn `Checkbox`), "Save & Close" / "New Recording" actions, and an
-   expandable/linked "View Transcript" (secondary, not the widget's main focus).
+   summary…") with spinner/progress indicator, and a **provider picker** (Claude
+   / Ollama, defaulting to the auto-selected provider) shown once transcription
+   completes and before summarization is triggered.
+4. **Done** — attendees list, summary content in the Notion-style or
+   type-specific structure (whichever applies), action items as a checklist
+   (shadcn `Checkbox`, each showing an assignee when identified), a
+   **"Regenerate with [other provider]"** action, "Save & Close" / "New
+   Recording" actions, and an expandable/linked "View Transcript" (secondary,
+   not the widget's main focus).
 
 **State management:** simple hooks + Tauri `invoke` calls; no need for a state
 library at this scope.
 
 ## 9. Error Handling & Edge Cases
 
-- No system audio monitor source → mic-only fallback + warning badge.
+- No system audio monitor source → mic-only fallback, applied silently — the
+  compact Recording pill (Section 8) has no room for a warning badge without
+  breaking its minimal Notion-style form, so this is tracked internally
+  (`used_system_audio` on `MeetingMeta`) rather than surfaced during recording.
 - Recording interrupted → partial audio preserved, resumable on next launch.
 - Transcription failure (binary missing/crash) → error state with "Retry"; audio
   file always preserved.
@@ -179,18 +271,24 @@ library at this scope.
 
 - **Rust backend:** unit tests for audio mixing logic, whisper.cpp output
   parsing, and `SummaryProvider` implementations (mockable).
-- **Audio capture:** manual/integration testing on real hardware — Linux audio
-  stack (PipeWire config) varies enough that full automation isn't practical for
-  MVP.
+- **Audio capture:** manual/integration testing on real hardware — both the
+  Linux PipeWire stack and macOS ScreenCaptureKit permission/capture behavior
+  vary enough by machine/OS version that full automation isn't practical for
+  MVP; platform-specific modules are tested manually on their respective OS.
 - **Frontend:** component tests for widget state transitions (idle → recording →
   processing → done).
 
 ## 11. Future Directions (explicitly deferred)
 
-- Speaker diarization (dual-track audio capture lays the groundwork)
-- Structured action items (assignee, due date)
+- Speaker diarization (audio-based; dual-track audio capture lays the
+  groundwork — text-based attendee inference is in scope now, see Section 6)
+- Due dates on action items (assignee is in scope now; due date still deferred)
 - Meeting list/history UI (data model via `index.json` already supports this)
 - Meeting-platform bot integration (Zoom/Meet API — join call, capture
   server-side)
-- macOS/Windows support
+- Windows support
 - Settings screen (once config surface grows beyond first-launch scope)
+- Editable/correctable attendees and action items in the Done state (manual
+  fix-up when the LLM's text-based inference gets a name wrong)
+- Export summary as Markdown/copy-to-clipboard in Notion-pasteable format
+- User-defined custom meeting types beyond the built-in set

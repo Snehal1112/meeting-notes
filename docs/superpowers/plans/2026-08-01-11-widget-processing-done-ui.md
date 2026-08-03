@@ -16,7 +16,7 @@
 - Modify: `src/components/RecorderWidget.tsx`
 - Modify: `src/components/RecorderWidget.test.tsx`
 
-- [x] **Step 1: Write failing test for sub-status text change**
+- [ ] **Step 1: Write failing test for sub-status text change**
 
 ```tsx
 it("shows Transcribing then Generating summary during processing", async () => {
@@ -33,12 +33,12 @@ it("shows Transcribing then Generating summary during processing", async () => {
 
 Ensure the existing mocks for `@/lib/transcription` and a new mock for `@/lib/summary` are set up at the top of the test file (`vi.mock("@/lib/summary", () => ({ summarizeMeeting: vi.fn().mockResolvedValue({ summary: "s", action_items: [] }) }))`), and that `onTranscriptionComplete`'s mock immediately invokes its callback with a `Summarizing`-status meeting to simulate the real event flow.
 
-- [x] **Step 2: Run test to verify current behavior**
+- [ ] **Step 2: Run test to verify current behavior**
 
 Run: `bun run test -- RecorderWidget`
 Expected: PASS already for "Transcribing" text (built in plan 08) — this step confirms the baseline before adding the summary sub-status.
 
-- [x] **Step 3: Implement processing sub-status state + summary trigger**
+- [ ] **Step 3: Implement processing sub-status state + summary trigger**
 
 ```tsx
 // src/components/RecorderWidget.tsx (modify processing effect + render)
@@ -85,12 +85,12 @@ if (state === "processing") {
 }
 ```
 
-- [x] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Run test to verify it passes**
 
 Run: `bun run test -- RecorderWidget`
 Expected: PASS
 
-- [x] **Step 5: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add src/components/RecorderWidget.tsx src/components/RecorderWidget.test.tsx
@@ -106,7 +106,7 @@ git commit -m "feat: add sequential processing sub-status and trigger summary ge
 - Create: `src/components/ActionItemsList.test.tsx`
 - Modify: `src/components/RecorderWidget.tsx`
 
-- [x] **Step 1: Write failing test for ActionItemsList toggling**
+- [ ] **Step 1: Write failing test for ActionItemsList toggling**
 
 ```tsx
 // src/components/ActionItemsList.test.tsx
@@ -129,12 +129,12 @@ describe("ActionItemsList", () => {
 });
 ```
 
-- [x] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run test to verify it fails**
 
 Run: `bun run test -- ActionItemsList`
 Expected: FAIL — component doesn't exist.
 
-- [x] **Step 3: Implement ActionItemsList**
+- [ ] **Step 3: Implement ActionItemsList**
 
 ```tsx
 // src/components/ActionItemsList.tsx
@@ -173,12 +173,12 @@ export function ActionItemsList({ items, onToggle }: ActionItemsListProps) {
 }
 ```
 
-- [x] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Run test to verify it passes**
 
 Run: `bun run test -- ActionItemsList`
 Expected: PASS
 
-- [x] **Step 5: Wire ActionItemsList + summary into RecorderWidget's Done state**
+- [ ] **Step 5: Wire ActionItemsList + summary into RecorderWidget's Done state**
 
 ```tsx
 // src/components/RecorderWidget.tsx (replace done placeholder)
@@ -228,11 +228,7 @@ if (state === "done") {
 Run: `bun run tauri dev` with a provider configured, complete a full recording flow.
 Expected: Done state shows summary text and a checklist of action items; checking an item strikes it through.
 
-> Not run: needs a live mic recording and a configured provider. Covered at
-> the component level by the "RecorderWidget done state" tests (summary text,
-> one checkbox per action item, toggling a checkbox) and ActionItemsList.test.tsx.
-
-- [x] **Step 7: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/components/ActionItemsList.tsx src/components/ActionItemsList.test.tsx src/components/RecorderWidget.tsx
@@ -246,7 +242,7 @@ git commit -m "feat: add done state with summary and action items checklist"
 **Files:**
 - Modify: `src/components/RecorderWidget.tsx`
 
-- [x] **Step 1: Add Tabs around the Done state content**
+- [ ] **Step 1: Add Tabs around the Done state content**
 
 ```tsx
 // src/components/RecorderWidget.tsx (modify the "done" state block)
@@ -304,11 +300,7 @@ Add the corresponding minimal Rust command `read_transcript_text` (in `transcrip
 Run: `bun run tauri dev`, complete a recording flow, switch between Summary/Action Items/Transcript tabs.
 Expected: all three tabs render correct content; "Save & Close" and "New Recording" both return the widget to idle state, ready for the next meeting.
 
-> Not run: needs a live mic recording. Covered at the component level by the
-> "RecorderWidget done state tabs" tests, which drive real tab switches with
-> user-event and assert each tab's content plus both idle-returning buttons.
-
-- [x] **Step 3: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add src/components/RecorderWidget.tsx src-tauri/src/commands/transcription_commands.rs src-tauri/src/main.rs src/lib/transcription.ts

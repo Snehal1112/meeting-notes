@@ -1,6 +1,6 @@
 # First-Launch Config Dialog Implementation Plan
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [x]`) syntax for tracking.
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Show a skippable one-time setup dialog on launch when no config (env vars or file) is found, letting the user optionally set a Claude API key, Ollama endpoint, and whisper model.
 
@@ -16,7 +16,7 @@
 - Create: `src/components/ConfigDialog.tsx`
 - Create: `src/components/ConfigDialog.test.tsx`
 
-- [x] **Step 1: Write failing component test**
+- [ ] **Step 1: Write failing component test**
 
 ```tsx
 // src/components/ConfigDialog.test.tsx
@@ -46,12 +46,12 @@ describe("ConfigDialog", () => {
 });
 ```
 
-- [x] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run test to verify it fails**
 
 Run: `bun run test -- ConfigDialog`
 Expected: FAIL — `ConfigDialog` doesn't exist yet.
 
-- [x] **Step 3: Implement the component**
+- [ ] **Step 3: Implement the component**
 
 ```tsx
 // src/components/ConfigDialog.tsx
@@ -148,12 +148,12 @@ export function ConfigDialog({ open, onSave, onSkip }: ConfigDialogProps) {
 }
 ```
 
-- [x] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Run test to verify it passes**
 
 Run: `bun run test -- ConfigDialog`
 Expected: PASS
 
-- [x] **Step 5: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add src/components/ConfigDialog.tsx src/components/ConfigDialog.test.tsx
@@ -167,7 +167,7 @@ git commit -m "feat: add first-launch config dialog component"
 **Files:**
 - Modify: `src/App.tsx`
 
-- [x] **Step 1: Add state + effect to check config on mount**
+- [ ] **Step 1: Add state + effect to check config on mount**
 
 ```tsx
 // src/App.tsx (additions)
@@ -199,17 +199,17 @@ function App() {
 }
 ```
 
-- [x] **Step 2: Manual verification**
+- [ ] **Step 2: Manual verification**
 
 Run: `bun run tauri dev` with no `MEETING_NOTES_*` env vars set and no existing `~/.config/meeting-notes/config.toml`.
 Expected: dialog appears on launch. Fill in a value and click Save → dialog closes, `~/.config/meeting-notes/config.toml` is created with that value. Relaunch → dialog does not reappear.
 
-- [x] **Step 3: Verify skip behavior**
+- [ ] **Step 3: Verify skip behavior**
 
 Delete the config file, relaunch, click Skip.
 Expected: dialog closes, no config file written, dialog reappears on next relaunch (expected — matches "skippable, re-prompts" design).
 
-- [x] **Step 4: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add src/App.tsx

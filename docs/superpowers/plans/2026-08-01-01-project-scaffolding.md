@@ -10,6 +10,8 @@
 
 **Tech Stack:** Tauri v2, Rust (Cargo workspace), React 18, TypeScript, Vite, shadcn/ui, Tailwind CSS
 
+> **Cross-platform note:** This plan (and plans 02–12) build out the Linux implementation. macOS support is added afterward via plans 13–16 (toolchain/permissions verification, audio facade refactor, ScreenCaptureKit-based capture, and bundle configuration) — the crate structure created here (`meeting-notes-audio` as its own crate) is what makes that addition possible without touching the other crates.
+
 **Workspace crates (created in this plan, filled in by later plans):**
 - `meeting-notes-core` — shared domain types & traits (`Config`, `MeetingMeta`, `TranscriptSegment`, `SummaryResult`, `SummaryProvider` trait). Every other crate depends on this one; it depends on nothing project-specific.
 - `meeting-notes-audio` — PipeWire capture + WAV mixing (plans 04–05)
@@ -143,10 +145,10 @@ When prompted: TypeScript = yes, style = default, base color = slate, CSS variab
 - [ ] **Step 3: Add the components this project will need**
 
 ```bash
-npx shadcn@latest add button checkbox tabs input dialog
+npx shadcn@latest add button checkbox tabs input dialog select
 ```
 
-Verify `src/components/ui/` contains `button.tsx`, `checkbox.tsx`, `tabs.tsx`, `input.tsx`, `dialog.tsx`.
+Verify `src/components/ui/` contains `button.tsx`, `checkbox.tsx`, `tabs.tsx`, `input.tsx`, `dialog.tsx`, `select.tsx`.
 
 - [ ] **Step 4: Verify a shadcn component renders**
 
@@ -183,13 +185,15 @@ In `src-tauri/tauri.conf.json`, set the main window block:
         "resizable": false,
         "alwaysOnTop": true,
         "decorations": false,
-        "transparent": false,
+        "transparent": true,
         "skipTaskbar": false
       }
     ]
   }
 }
 ```
+
+Note: `transparent: true` means the OS-level window itself has no background — every visible surface (the card, the title bar) must paint its own opaque background via CSS (already the plan, e.g. `bg-background` on the root div in later steps). This is what makes it possible for the Recording state (styled in plan 20) to shrink the window down to a borderless floating pill with nothing but transparent space around it, matching how Notion's own recording indicator behaves — without it, a resized-but-opaque window would just show as a small white rectangle instead of a true floating pill.
 
 - [ ] **Step 2: Add a draggable custom title bar component**
 

@@ -1,6 +1,6 @@
 # Audio Capture (Mic Only) Implementation Plan
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [x]`) syntax for tracking.
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Capture microphone audio via PipeWire and write it to a WAV file, exposed as Tauri `start_recording`/`stop_recording` commands.
 
@@ -19,7 +19,7 @@
 - Create: `crates/meeting-notes-audio/src/tests.rs`
 - Modify: `crates/meeting-notes-audio/Cargo.toml`
 
-- [x] **Step 1: Write failing test for handle lifecycle**
+- [ ] **Step 1: Write failing test for handle lifecycle**
 
 ```rust
 // crates/meeting-notes-audio/src/tests.rs
@@ -39,12 +39,12 @@ fn start_creates_output_file_after_stop() {
 
 Note: this test requires a real PipeWire mic source and will only run meaningfully on the target Ubuntu dev machine — mark with `#[ignore]` if running in CI without audio hardware, and document that it must be run manually with `cargo test -- --ignored` on real hardware.
 
-- [x] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run test to verify it fails**
 
 Run: `cargo test -p meeting-notes-audio -- --ignored --nocapture`
 Expected: FAIL — `RecordingHandle` not defined.
 
-- [x] **Step 3: Implement RecordingHandle**
+- [ ] **Step 3: Implement RecordingHandle**
 
 ```rust
 // crates/meeting-notes-audio/src/lib.rs
@@ -91,12 +91,12 @@ mod tests;
 
 Add `libc` dependency from within the crate: `cd crates/meeting-notes-audio && cargo add libc`. This module is the crate root (`lib.rs`), so no separate `mod audio;` registration is needed — other crates will reference it as `meeting_notes_audio::RecordingHandle`.
 
-- [x] **Step 4: Run test on real hardware to verify it passes**
+- [ ] **Step 4: Run test on real hardware to verify it passes**
 
 Run: `cargo test -p meeting-notes-audio -- --ignored --nocapture` (on the Ubuntu dev machine with a mic)
 Expected: PASS, WAV file created and non-empty.
 
-- [x] **Step 5: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add crates/meeting-notes-audio/src crates/meeting-notes-audio/Cargo.toml
@@ -113,7 +113,7 @@ git commit -m "feat: add mic-only recording via pw-record"
 - Modify: `src-tauri/src/main.rs`
 - Create: `src/lib/recording.ts`
 
-- [x] **Step 1: Implement commands with app-managed state**
+- [ ] **Step 1: Implement commands with app-managed state**
 
 ```rust
 // src-tauri/src/commands/recording_commands.rs
@@ -149,7 +149,7 @@ pub fn stop_recording(state: State<RecordingState>) -> Result<String, String> {
 
 Register `RecordingState(Mutex::new(None))` via `.manage(...)` in `main.rs`'s builder, and add both commands to `generate_handler![]`.
 
-- [x] **Step 2: Add TypeScript wrapper**
+- [ ] **Step 2: Add TypeScript wrapper**
 
 ```ts
 // src/lib/recording.ts
@@ -161,12 +161,12 @@ export const startRecording = (outputPath: string) =>
 export const stopRecording = () => invoke<string>("stop_recording");
 ```
 
-- [x] **Step 3: Manual verification**
+- [ ] **Step 3: Manual verification**
 
 Run: `bun run tauri dev`, call `startRecording("/tmp/test-meeting/audio.wav")` from devtools console, speak into mic for a few seconds, call `stopRecording()`.
 Expected: `/tmp/test-meeting/audio.wav` exists and plays back your voice (verify with `aplay /tmp/test-meeting/audio.wav`).
 
-- [x] **Step 4: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add src-tauri/src/commands src-tauri/src/main.rs src/lib/recording.ts

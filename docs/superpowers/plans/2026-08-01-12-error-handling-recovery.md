@@ -16,7 +16,7 @@
 - Modify: `src/components/RecorderWidget.tsx`
 - Modify: `src/components/RecorderWidget.test.tsx`
 
-- [x] **Step 1: Write failing test for transcription failure → retry**
+- [ ] **Step 1: Write failing test for transcription failure → retry**
 
 ```tsx
 it("shows a retry option when transcription fails", async () => {
@@ -32,12 +32,12 @@ it("shows a retry option when transcription fails", async () => {
 });
 ```
 
-- [x] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run test to verify it fails**
 
 Run: `bun run test -- RecorderWidget`
 Expected: FAIL — no failure state exists yet, error propagates unhandled.
 
-- [x] **Step 3: Implement failure state + retry**
+- [ ] **Step 3: Implement failure state + retry**
 
 ```tsx
 // src/components/RecorderWidget.tsx (modify processing effect)
@@ -77,12 +77,12 @@ useEffect(() => {
 )}
 ```
 
-- [x] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Run test to verify it passes**
 
 Run: `bun run test -- RecorderWidget`
 Expected: PASS
 
-- [x] **Step 5: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add src/components/RecorderWidget.tsx src/components/RecorderWidget.test.tsx
@@ -97,7 +97,7 @@ git commit -m "feat: add retryable transcription failure state"
 - Modify: `src/components/RecorderWidget.tsx`
 - Modify: `src/components/RecorderWidget.test.tsx`
 
-- [x] **Step 1: Write failing test confirming transcript tab still works when summary fails**
+- [ ] **Step 1: Write failing test confirming transcript tab still works when summary fails**
 
 ```tsx
 it("still shows the transcript tab when summary generation fails", async () => {
@@ -114,12 +114,12 @@ it("still shows the transcript tab when summary generation fails", async () => {
 });
 ```
 
-- [x] **Step 2: Run test to verify current state**
+- [ ] **Step 2: Run test to verify current state**
 
 Run: `bun run test -- RecorderWidget`
 Expected: This should largely already PASS given plan 11 Task 2/3's `summaryError` handling — this step is a regression-guard confirming the fallback wasn't broken by Task 1's changes above. If it fails, check that `setSummaryError` still gets set correctly in the `catch` block of the summarize step and that `state` still transitions to `"done"` in the `finally`.
 
-- [x] **Step 3: Tighten the error message per the "not_configured" vs other-failure distinction**
+- [ ] **Step 3: Tighten the error message per the "not_configured" vs other-failure distinction**
 
 ```tsx
 // src/components/RecorderWidget.tsx (refine the summary catch block)
@@ -135,12 +135,12 @@ Expected: This should largely already PASS given plan 11 Task 2/3's `summaryErro
 
 Update the Done-state render to use `summaryError` directly as the displayed text instead of a hardcoded string.
 
-- [x] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Run test to verify it passes**
 
 Run: `bun run test -- RecorderWidget`
 Expected: PASS
 
-- [x] **Step 5: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add src/components/RecorderWidget.tsx src/components/RecorderWidget.test.tsx
@@ -156,7 +156,7 @@ git commit -m "feat: distinguish not-configured vs failed summary states, keep t
 - Create: `src/components/ResumePrompt.tsx`
 - Create: `src/components/ResumePrompt.test.tsx`
 
-- [x] **Step 1: Write failing test for ResumePrompt**
+- [ ] **Step 1: Write failing test for ResumePrompt**
 
 ```tsx
 // src/components/ResumePrompt.test.tsx
@@ -181,12 +181,12 @@ describe("ResumePrompt", () => {
 });
 ```
 
-- [x] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run test to verify it fails**
 
 Run: `bun run test -- ResumePrompt`
 Expected: FAIL — component doesn't exist.
 
-- [x] **Step 3: Implement ResumePrompt**
+- [ ] **Step 3: Implement ResumePrompt**
 
 ```tsx
 // src/components/ResumePrompt.tsx
@@ -222,12 +222,12 @@ export function ResumePrompt({ meetings, onResume, onDismiss }: ResumePromptProp
 }
 ```
 
-- [x] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Run test to verify it passes**
 
 Run: `bun run test -- ResumePrompt`
 Expected: PASS
 
-- [x] **Step 5: Wire into App.tsx on launch**
+- [ ] **Step 5: Wire into App.tsx on launch**
 
 ```tsx
 // src/App.tsx (additions)
@@ -259,15 +259,7 @@ useEffect(() => {
 Run: `bun run tauri dev`, start a recording, force-kill the app process (`kill -9`) mid-recording, relaunch.
 Expected: `ResumePrompt` appears listing the interrupted meeting; clicking Resume jumps the widget into the processing/transcribing flow using the partially-recorded `audio.wav`.
 
-> Not run: needs a live recording and a force-kill of the GUI process. Each
-> layer is covered by tests instead: `find_orphaned_meetings_returns_only_recording_status`
-> (storage, plan 07) proves a meeting left at "Recording" is detected;
-> `App.test.tsx` proves the prompt appears and hands the meeting down on
-> Resume; and the "resuming an interrupted recording" tests in
-> `RecorderWidget.test.tsx` prove it transcribes that meeting rather than
-> creating a new one.
-
-- [x] **Step 7: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/components/ResumePrompt.tsx src/components/ResumePrompt.test.tsx src/App.tsx
