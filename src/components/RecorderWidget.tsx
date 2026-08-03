@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { startRecording, stopRecording } from "@/lib/recording";
+import { MeetingTypePicker } from "@/components/MeetingTypePicker";
 import {
   createNewMeeting,
   getDataDir,
@@ -9,14 +10,6 @@ import {
   type MeetingMeta,
   type MeetingType,
 } from "@/lib/storage";
-
-const MEETING_TYPES: { value: MeetingType; label: string }[] = [
-  { value: "AutoDetect", label: "Auto-detect" },
-  { value: "Standup", label: "Standup" },
-  { value: "Retrospective", label: "Retrospective" },
-  { value: "FeatureRequest", label: "Feature Request" },
-  { value: "Incident", label: "Incident" },
-];
 import { transcribeMeeting, readTranscriptText, onTranscriptionComplete } from "@/lib/transcription";
 import { getConfig, setSummaryProvider, type AppConfig } from "@/lib/config";
 import { summarizeMeeting, type SummaryResult } from "@/lib/summary";
@@ -317,18 +310,7 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
-        <select
-          aria-label="Meeting type"
-          className="w-full border rounded-md h-9 px-2 text-sm"
-          value={meetingType}
-          onChange={(e) => setMeetingType(e.target.value as MeetingType)}
-        >
-          {MEETING_TYPES.map((t) => (
-            <option key={t.value} value={t.value}>
-              {t.label}
-            </option>
-          ))}
-        </select>
+        <MeetingTypePicker value={meetingType} onChange={setMeetingType} disabled={busy} />
         <ProviderPicker config={config} onChange={handleProviderChange} />
         <Button onClick={handleStart} disabled={busy}>
           Start Recording

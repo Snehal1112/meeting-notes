@@ -167,18 +167,22 @@ describe("RecorderWidget meeting storage integration", () => {
 
   it("passes the meeting type chosen in the idle state to createNewMeeting", async () => {
     const { createNewMeeting } = await import("@/lib/storage");
+    // The picker is a Radix Select, which ignores fireEvent — it opens on
+    // pointer events and renders its options into a portal.
+    const user = userEvent.setup();
     render(<RecorderWidget />);
-    fireEvent.change(screen.getByLabelText(/meeting type/i), {
-      target: { value: "Retrospective" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+
+    await user.click(screen.getByLabelText(/meeting type/i));
+    await user.click(await screen.findByRole("option", { name: "Retrospective" }));
+    await user.click(screen.getByRole("button", { name: /start recording/i }));
+
     await screen.findByRole("button", { name: /stop recording/i });
     expect(createNewMeeting).toHaveBeenCalledWith("", "Retrospective");
   });
 
   it("defaults the meeting type selector to Auto-detect", () => {
     render(<RecorderWidget />);
-    expect(screen.getByLabelText(/meeting type/i)).toHaveValue("AutoDetect");
+    expect(screen.getByLabelText(/meeting type/i)).toHaveTextContent("Auto-detect");
   });
 
   it("updates the meeting status to Transcribing after a successful stop", async () => {
