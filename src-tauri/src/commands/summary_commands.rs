@@ -65,7 +65,7 @@ async fn run_summarize(
     let transcript = std::fs::read_to_string(meeting_dir.join("transcript.txt"))
         .map_err(|e| format!("could not read transcript: {e}"))?;
 
-    let result = generate_notes(provider.as_ref(), &transcript).await?;
+    let result = generate_notes(provider.as_ref(), meeting.meeting_type, &transcript).await?;
 
     write_summary_files(&meeting_dir, &result, &meeting)?;
 
