@@ -1,7 +1,19 @@
+import { useRef } from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import App from "./App";
 import type { MeetingMeta } from "@/lib/storage";
+
+type MockWidgetState = "idle" | "recording" | "processing" | "done";
+
+// Bumped once per genuine RecorderWidget *mount* (see idRef below) --
+// distinct from a re-render of an already-mounted instance. Used by the
+// "keeps RecorderWidget mounted" tests below to detect the App.tsx bug where
+// swapping between the chrome-less pill branch and the full-chrome branch
+// put RecorderWidget at a different position/depth in the tree, causing
+// React to tear down and remount it on every idle<->recording/processing
+// transition instead of preserving the instance.
+let recorderMountCount = 0;
 
 vi.mock("@/lib/config", () => ({
   configNeedsSetup: vi.fn(),
@@ -21,12 +33,36 @@ vi.mock("@/lib/storage", () => ({
 vi.mock("@/hooks/useAutoResizeWindow", () => ({ useAutoResizeWindow: vi.fn() }));
 vi.mock("@/components/TitleBar", () => ({ TitleBar: () => <div /> }));
 
-// Stubbed so these tests assert App's wiring — which meeting it hands down —
-// rather than re-testing the widget's own recording flow.
+// Stubbed so these tests assert App's wiring — which meeting it hands down,
+// and (below) whether App preserves this instance across a widgetState
+// transition — rather than re-testing the widget's own recording flow.
+// idRef is assigned lazily on first render and never reassigned after that:
+// it stays put across re-renders of the same instance, but a genuine remount
+// creates a fresh ref (starting at null again), which is exactly the
+// distinction the mount-tracking tests below need.
 vi.mock("@/components/RecorderWidget", () => ({
-  RecorderWidget: ({ resumeMeeting }: { resumeMeeting?: MeetingMeta | null }) => (
-    <div data-testid="recorder">{resumeMeeting ? `resuming:${resumeMeeting.id}` : "idle"}</div>
-  ),
+  RecorderWidget: ({
+    resumeMeeting,
+    onStateChange,
+  }: {
+    resumeMeeting?: MeetingMeta | null;
+    onStateChange?: (state: MockWidgetState) => void;
+  }) => {
+    const idRef = useRef<number | null>(null);
+    if (idRef.current === null) {
+      recorderMountCount += 1;
+      idRef.current = recorderMountCount;
+    }
+    return (
+      <div data-testid="recorder">
+        <span data-testid="recorder-mount-id">{idRef.current}</span>
+        {resumeMeeting ? `resuming:${resumeMeeting.id}` : "idle"}
+        <button onClick={() => onStateChange?.("recording")}>go-recording</button>
+        <button onClick={() => onStateChange?.("processing")}>go-processing</button>
+        <button onClick={() => onStateChange?.("idle")}>go-idle</button>
+      </div>
+    );
+  },
 }));
 
 const orphan: MeetingMeta = {
@@ -45,6 +81,8 @@ beforeEach(async () => {
 
   const { getOrphanedMeetings } = await import("@/lib/storage");
   vi.mocked(getOrphanedMeetings).mockReset().mockResolvedValue([]);
+
+  recorderMountCount = 0;
 });
 
 describe("App orphaned recording recovery", () => {
@@ -108,5 +146,47 @@ describe("App orphaned recording recovery", () => {
     render(<App />);
     expect(await screen.findByTestId("recorder")).toHaveTextContent("idle");
     consoleErrorSpy.mockRestore();
+  });
+});
+
+// App renders two very different sets of chrome depending on widgetState:
+// full chrome (TitleBar/ConfigDialog/ResumePrompt) for idle/done, and a bare
+// chrome-less pill for recording/processing. RecorderWidget itself reports
+// these transitions via onStateChange (see RecorderWidget.tsx), which means
+// App re-renders with a differently-shaped tree the instant a recording
+// starts or transcription finishes. If RecorderWidget's own JSX element
+// isn't kept at the same position in that tree across both shapes, React
+// tears down and remounts it — silently dropping its internal state (the
+// elapsed-time timer, currentMeetingRef, the live transcription listener)
+// right as a real recording/transcription is in flight.
+//
+// animateResize's window calls (getCurrentWindow() and friends) throw
+// synchronously outside a real Tauri runtime; App.tsx already logs and
+// swallows that failure rather than letting it escape, which is what keeps
+// these tests able to trigger a real "recording"/"processing" transition in
+// jsdom without a Tauri backend.
+describe("App keeps RecorderWidget mounted across chrome transitions", () => {
+  it("preserves the RecorderWidget instance when it reports moving into the chrome-less recording pill", async () => {
+    render(<App />);
+    const beforeId = (await screen.findByTestId("recorder-mount-id")).textContent;
+
+    fireEvent.click(screen.getByRole("button", { name: "go-recording" }));
+
+    // Same instance, not a fresh mount: the id assigned on first render must
+    // still read back after the chrome swap.
+    expect(await screen.findByTestId("recorder-mount-id")).toHaveTextContent(beforeId!);
+    expect(recorderMountCount).toBe(1);
+  });
+
+  it("preserves the RecorderWidget instance across recording -> processing -> idle", async () => {
+    render(<App />);
+    const beforeId = (await screen.findByTestId("recorder-mount-id")).textContent;
+
+    fireEvent.click(screen.getByRole("button", { name: "go-recording" }));
+    fireEvent.click(await screen.findByRole("button", { name: "go-processing" }));
+    fireEvent.click(await screen.findByRole("button", { name: "go-idle" }));
+
+    expect(await screen.findByTestId("recorder-mount-id")).toHaveTextContent(beforeId!);
+    expect(recorderMountCount).toBe(1);
   });
 });

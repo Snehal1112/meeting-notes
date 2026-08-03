@@ -63,6 +63,20 @@ const PILL_SIZES: Record<"recording" | "processing", { width: number; height: nu
   processing: { width: 260, height: 56 },
 };
 
+// Reads the window's actual current logical size, so the resize animation
+// can ease from wherever the window really is right now -- e.g. the ~400x300
+// full-chrome size on the very first Idle/Done -> Recording transition, or
+// whatever pill size a prior Recording<->Processing hop left it at. Querying
+// fresh each time (rather than caching the last pill size in a ref) means
+// there is nothing to go stale across an Idle/Done detour in between
+// recordings (processing -> done -> idle -> recording again).
+async function currentWindowSize(): Promise<{ width: number; height: number }> {
+  const win = getCurrentWindow();
+  const [physical, scaleFactor] = await Promise.all([win.innerSize(), win.scaleFactor()]);
+  const logical = physical.toLogical(scaleFactor);
+  return { width: logical.width, height: logical.height };
+}
+
 function App() {
   const [showConfigDialog, setShowConfigDialog] = useState(false);
   const [orphaned, setOrphaned] = useState<MeetingMeta[]>([]);
@@ -76,13 +90,26 @@ function App() {
 
   // Drives the pill's own size during Recording/Processing only. Idle/Done
   // intentionally do not run this -- see PILL_SIZES above.
-  const previousPillSizeRef = useRef(PILL_SIZES.recording);
   useEffect(() => {
     if (widgetState !== "recording" && widgetState !== "processing") return;
+    let cancelled = false;
     const targetSize = PILL_SIZES[widgetState];
-    animateResize(previousPillSizeRef.current, targetSize).then(() => {
-      previousPillSizeRef.current = targetSize;
-    });
+    (async () => {
+      const from = await currentWindowSize().catch((err) => {
+        console.error("Could not read current window size for resize animation:", err);
+        return targetSize;
+      });
+      if (cancelled) return;
+      await animateResize(from, targetSize);
+      // animateResize itself calls getCurrentWindow(), which throws
+      // synchronously outside of a real Tauri runtime (e.g. jsdom in
+      // tests) -- caught here so a resize failure never crashes the
+      // widget-state effect, consistent with every other Tauri call in
+      // this file being logged rather than left to bubble up.
+    })().catch((err) => console.error("Pill resize animation failed:", err));
+    return () => {
+      cancelled = true;
+    };
   }, [widgetState]);
 
   useEffect(() => {
@@ -117,35 +144,46 @@ function App() {
   // ConfigDialog/ResumePrompt -- none of those can be relevant mid-recording
   // (same reasoning as ConfigDialog already not appearing then: it's only
   // ever shown at first launch, well before a recording could be in
-  // progress). The pill itself -- styled inside RecorderWidget in a later
-  // sub-part -- is the entire visible window, floating on transparent space.
-  if (widgetState === "recording" || widgetState === "processing") {
-    return (
-      <div className="h-screen w-screen flex items-center justify-center bg-transparent">
-        <RecorderWidget resumeMeeting={resumeMeeting} onStateChange={setWidgetState} />
-      </div>
-    );
-  }
+  // progress). The pill itself -- styled inside RecorderWidget -- is the
+  // entire visible window, floating on transparent space.
+  //
+  // RecorderWidget is written ONCE below, as the last child in a single
+  // return tree, and stays in that same JSX slot (same type, same position
+  // among siblings) across every widgetState transition -- only the chrome
+  // *around* it (TitleBar, ConfigDialog, ResumePrompt, the card border, the
+  // wrapper className) is what varies conditionally. This matters: React's
+  // reconciler matches children by type+position, not by "this is
+  // conceptually the same component". Two structurally different return
+  // trees that each construct their own <RecorderWidget> element -- even if
+  // both are "just" a RecorderWidget somewhere inside a div -- would look
+  // like a type mismatch at that position the moment the surrounding shape
+  // differs, and React would tear down the whole subtree and mount a fresh
+  // instance. That would drop currentMeetingRef, the elapsed-time timer, and
+  // the live onTranscriptionComplete listener right as a recording starts or
+  // transcription is in flight -- see the remount-detection test in
+  // App.test.tsx for the regression this guards against.
+  const isPill = widgetState === "recording" || widgetState === "processing";
 
   return (
     <div
-      ref={rootRef}
-      className="min-h-[300px] flex flex-col rounded-lg overflow-hidden border bg-background"
+      ref={isPill ? undefined : rootRef}
+      className={
+        isPill
+          ? "h-screen w-screen flex items-center justify-center bg-transparent"
+          : "min-h-[300px] flex flex-col rounded-lg overflow-hidden border bg-background"
+      }
     >
-      <TitleBar />
-      {showConfigDialog ? (
+      {!isPill && <TitleBar />}
+      {!isPill && showConfigDialog && (
         <ConfigDialog open={showConfigDialog} onSave={handleSave} onSkip={handleSkip} />
-      ) : (
-        <>
-          <ResumePrompt
-            meetings={orphaned}
-            onResume={handleResume}
-            onDismiss={() => setOrphaned([])}
-          />
-          <div className="flex-1 p-4">
-            <RecorderWidget resumeMeeting={resumeMeeting} onStateChange={setWidgetState} />
-          </div>
-        </>
+      )}
+      {!isPill && !showConfigDialog && (
+        <ResumePrompt meetings={orphaned} onResume={handleResume} onDismiss={() => setOrphaned([])} />
+      )}
+      {(isPill || !showConfigDialog) && (
+        <div className={isPill ? undefined : "flex-1 p-4"}>
+          <RecorderWidget resumeMeeting={resumeMeeting} onStateChange={setWidgetState} />
+        </div>
       )}
     </div>
   );
