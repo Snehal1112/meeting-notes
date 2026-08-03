@@ -114,6 +114,32 @@ fn omits_empty_sections_entirely() {
 }
 
 #[test]
+fn omits_the_heading_for_a_topic_with_no_points() {
+    // Nothing in the Topic type prevents an empty points list, and a bare
+    // "### <title>" heading with nothing under it is exactly the empty
+    // section the spec says must be dropped.
+    let mut result = full_result();
+    result.topics.push(Topic { title: "Pointless Topic".to_string(), points: vec![] });
+    let md = render_summary_markdown(&result, &meeting());
+    assert!(!md.contains("### Pointless Topic"), "got:\n{md}");
+    // The topic with real points must still render.
+    assert!(md.contains("### Commit conference coverage"), "got:\n{md}");
+}
+
+#[test]
+fn omits_discussion_notes_heading_when_every_topic_has_no_points() {
+    // A non-empty topics vec whose every topic is pointless must not leave
+    // behind an empty "## Discussion Notes" heading with nothing under it.
+    let mut result = full_result();
+    result.topics = vec![
+        Topic { title: "Pointless One".to_string(), points: vec![] },
+        Topic { title: "Pointless Two".to_string(), points: vec![] },
+    ];
+    let md = render_summary_markdown(&result, &meeting());
+    assert!(!md.contains("## Discussion Notes"), "got:\n{md}");
+}
+
+#[test]
 fn falls_back_to_the_meeting_id_when_the_recording_has_no_title() {
     let mut m = meeting();
     m.title = String::new();

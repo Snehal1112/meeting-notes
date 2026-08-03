@@ -794,4 +794,33 @@ describe("RecorderWidget structured notes", () => {
     expect(await screen.findByText(/parker/i)).toBeInTheDocument();
     expect(screen.getAllByRole("checkbox")).toHaveLength(2);
   });
+
+  // Nothing in the Rust type prevents a topic with an empty points array —
+  // the spec requires sections with no content to be omitted entirely, not
+  // rendered as a bare heading with no list underneath.
+  it("omits a topic's heading entirely when it has no points", async () => {
+    await completeAFlowWithNotes(notes({ topics: [{ title: "Empty Topic", points: [] }] }));
+    await screen.findByText(/discussed the q3 roadmap/i);
+    expect(screen.queryByText("Empty Topic")).not.toBeInTheDocument();
+  });
+
+  // The Rust-side merge only dedupes across chunks, not within a single
+  // model response, so a repeated bullet/decision/question inside one pass
+  // is a real possibility. Content-derived keys (e.g. key={d}) would collide
+  // on such a duplicate, causing React to warn and drop one of the two items.
+  it("renders duplicate decisions within one list without a React key warning", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await completeAFlowWithNotes(
+      notes({ decisions: ["Ship on Friday.", "Ship on Friday."] })
+    );
+
+    const matches = await screen.findAllByText(/ship on friday/i);
+    expect(matches).toHaveLength(2);
+
+    const keyWarning = consoleErrorSpy.mock.calls.some(([message]) =>
+      typeof message === "string" && /unique.*"key"|same key/i.test(message)
+    );
+    expect(keyWarning).toBe(false);
+    consoleErrorSpy.mockRestore();
+  });
 });

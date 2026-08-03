@@ -1,5 +1,5 @@
 use crate::meeting::MeetingMeta;
-use crate::summary::SummaryResult;
+use crate::summary::{SummaryResult, Topic};
 
 /// Fixed preamble explaining the limits of the transcription, so a reader
 /// knows why lines are unattributed and why some terms look wrong.
@@ -59,9 +59,16 @@ pub fn render_summary_markdown(result: &SummaryResult, meeting: &MeetingMeta) ->
         out.push_str(&format!("\n## Summary\n{}\n", result.summary));
     }
 
-    if !result.topics.is_empty() {
+    // A topic with no points would render as a bare "### <title>" heading
+    // with nothing under it, which is the empty section the spec forbids —
+    // so topics are filtered down to ones with content before rendering.
+    // If that leaves none at all, the "## Discussion Notes" heading itself
+    // must not appear either.
+    let topics_with_points: Vec<&Topic> =
+        result.topics.iter().filter(|topic| !topic.points.is_empty()).collect();
+    if !topics_with_points.is_empty() {
         out.push_str("\n## Discussion Notes\n");
-        for topic in &result.topics {
+        for topic in topics_with_points {
             out.push_str(&format!("\n### {}\n", topic.title));
             for point in &topic.points {
                 out.push_str(&format!("- {point}\n"));

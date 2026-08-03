@@ -343,22 +343,25 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
           ) : (
             <div className="space-y-3">
               <p>{summaryResult?.summary}</p>
-              {summaryResult?.topics.map((topic) => (
-                <div key={topic.title}>
-                  <h3 className="font-medium">{topic.title}</h3>
-                  <ul className="list-disc pl-4">
-                    {topic.points.map((point) => (
-                      <li key={point}>{point}</li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
+              {summaryResult?.topics.map(
+                (topic, i) =>
+                  topic.points.length > 0 && (
+                    <div key={i}>
+                      <h3 className="font-medium">{topic.title}</h3>
+                      <ul className="list-disc pl-4">
+                        {topic.points.map((point, j) => (
+                          <li key={j}>{point}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )
+              )}
               {summaryResult && summaryResult.decisions.length > 0 && (
                 <div>
                   <h3 className="font-medium">Decisions</h3>
                   <ul className="list-disc pl-4">
-                    {summaryResult.decisions.map((d) => (
-                      <li key={d}>{d}</li>
+                    {summaryResult.decisions.map((d, i) => (
+                      <li key={i}>{d}</li>
                     ))}
                   </ul>
                 </div>
@@ -367,8 +370,8 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
                 <div>
                   <h3 className="font-medium">Open Questions</h3>
                   <ul className="list-disc pl-4">
-                    {summaryResult.open_questions.map((q) => (
-                      <li key={q}>{q}</li>
+                    {summaryResult.open_questions.map((q, i) => (
+                      <li key={i}>{q}</li>
                     ))}
                   </ul>
                 </div>
