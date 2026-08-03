@@ -19,7 +19,7 @@ import { ActionItemsList, type ActionItem } from "@/components/ActionItemsList";
 import { ProviderPicker, type ProviderName } from "@/components/ProviderPicker";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
-type WidgetState = "idle" | "recording" | "processing" | "done";
+export type WidgetState = "idle" | "recording" | "processing" | "done";
 // "choosing_provider" is a distinct sub-status from "summarizing": it's the
 // window between transcription finishing and the user confirming which
 // provider to use for this run, shown only when more than one provider is
@@ -30,9 +30,15 @@ interface RecorderWidgetProps {
   /// An interrupted recording from a previous session to pick up, as offered
   /// by the launch-time ResumePrompt. Null when there is nothing to resume.
   resumeMeeting?: MeetingMeta | null;
+  /// Notifies the caller (App.tsx) whenever the widget's own state changes,
+  /// so window-level decisions that live outside this component -- chrome
+  /// visibility, window size -- can react to it. Optional so existing
+  /// standalone usage (e.g. tests rendering RecorderWidget on its own) keeps
+  /// working unchanged.
+  onStateChange?: (state: WidgetState) => void;
 }
 
-export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {}) {
+export function RecorderWidget({ resumeMeeting = null, onStateChange }: RecorderWidgetProps = {}) {
   const [state, setState] = useState<WidgetState>("idle");
   const [title, setTitle] = useState("");
   const [meetingType, setMeetingType] = useState<MeetingType>("AutoDetect");
@@ -78,6 +84,10 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
       .then(setConfig)
       .catch((err) => console.error("Could not load config:", errorMessage(err)));
   }, []);
+
+  useEffect(() => {
+    onStateChange?.(state);
+  }, [state, onStateChange]);
 
   useEffect(() => {
     if (state === "recording") {

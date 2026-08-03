@@ -1,18 +1,89 @@
 import { useEffect, useRef, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { LogicalSize } from "@tauri-apps/api/dpi";
 import { TitleBar } from "@/components/TitleBar";
 import { ConfigDialog } from "@/components/ConfigDialog";
-import { RecorderWidget } from "@/components/RecorderWidget";
+import { RecorderWidget, type WidgetState } from "@/components/RecorderWidget";
 import { ResumePrompt } from "@/components/ResumePrompt";
 import { configNeedsSetup, saveConfig, type AppConfig } from "@/lib/config";
 import { getOrphanedMeetings, type MeetingMeta } from "@/lib/storage";
 import { useAutoResizeWindow } from "@/hooks/useAutoResizeWindow";
 
+// Tauri's setSize() has no built-in transition -- it snaps instantly. To make
+// the Recording <-> Processing pill resize feel intentional rather than
+// jarring, step through intermediate sizes over a short duration with an
+// ease-out curve. This is a manual animation of the actual OS window frame,
+// not a CSS transition (CSS can't touch native window dimensions, only
+// content drawn inside them).
+//
+// Caveat: stepping setSize() at animation-frame rate can look stepped/janky
+// rather than smooth on some Linux window managers (particularly X11) --
+// this could not be visually verified in this implementing environment (no
+// display/Tauri runtime available here). If it looks janky in practice, the
+// fallback is a single non-animated setSize() call straight to the target.
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+async function animateResize(
+  from: { width: number; height: number },
+  to: { width: number; height: number },
+  durationMs = 180
+) {
+  const win = getCurrentWindow();
+  const start = performance.now();
+
+  return new Promise<void>((resolve) => {
+    function step(now: number) {
+      const elapsed = now - start;
+      const t = Math.min(elapsed / durationMs, 1);
+      const eased = easeOutCubic(t);
+      const width = from.width + (to.width - from.width) * eased;
+      const height = from.height + (to.height - from.height) * eased;
+      win
+        .setSize(new LogicalSize(width, height))
+        .catch((err) => console.error("animateResize: setSize failed", err));
+      if (t < 1) {
+        requestAnimationFrame(step);
+      } else {
+        resolve();
+      }
+    }
+    requestAnimationFrame(step);
+  });
+}
+
+// Fixed pill sizes for the chrome-less Recording/Processing window. Idle and
+// Done are deliberately not represented here -- their sizing stays owned by
+// useAutoResizeWindow's content measurement below (see the effect that
+// drives this table), so a fixed size for those two states would regress the
+// config dialog's ability to grow the window taller than 300px.
+const PILL_SIZES: Record<"recording" | "processing", { width: number; height: number }> = {
+  recording: { width: 224, height: 56 },
+  processing: { width: 260, height: 56 },
+};
+
 function App() {
   const [showConfigDialog, setShowConfigDialog] = useState(false);
   const [orphaned, setOrphaned] = useState<MeetingMeta[]>([]);
   const [resumeMeeting, setResumeMeeting] = useState<MeetingMeta | null>(null);
+  const [widgetState, setWidgetState] = useState<WidgetState>("idle");
   const rootRef = useRef<HTMLDivElement>(null);
+  // Only actually resizes anything while the full-chrome branch below is
+  // mounted -- ref.current is null while the chrome-less pill branch is
+  // rendered instead, and the hook no-ops safely on a null ref.
   useAutoResizeWindow(rootRef, 400, 300);
+
+  // Drives the pill's own size during Recording/Processing only. Idle/Done
+  // intentionally do not run this -- see PILL_SIZES above.
+  const previousPillSizeRef = useRef(PILL_SIZES.recording);
+  useEffect(() => {
+    if (widgetState !== "recording" && widgetState !== "processing") return;
+    const targetSize = PILL_SIZES[widgetState];
+    animateResize(previousPillSizeRef.current, targetSize).then(() => {
+      previousPillSizeRef.current = targetSize;
+    });
+  }, [widgetState]);
 
   useEffect(() => {
     configNeedsSetup().then(setShowConfigDialog);
@@ -42,6 +113,20 @@ function App() {
 
   const handleSkip = () => setShowConfigDialog(false);
 
+  // Recording and Processing: no title bar, no card border, no
+  // ConfigDialog/ResumePrompt -- none of those can be relevant mid-recording
+  // (same reasoning as ConfigDialog already not appearing then: it's only
+  // ever shown at first launch, well before a recording could be in
+  // progress). The pill itself -- styled inside RecorderWidget in a later
+  // sub-part -- is the entire visible window, floating on transparent space.
+  if (widgetState === "recording" || widgetState === "processing") {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-transparent">
+        <RecorderWidget resumeMeeting={resumeMeeting} onStateChange={setWidgetState} />
+      </div>
+    );
+  }
+
   return (
     <div
       ref={rootRef}
@@ -58,7 +143,7 @@ function App() {
             onDismiss={() => setOrphaned([])}
           />
           <div className="flex-1 p-4">
-            <RecorderWidget resumeMeeting={resumeMeeting} />
+            <RecorderWidget resumeMeeting={resumeMeeting} onStateChange={setWidgetState} />
           </div>
         </>
       )}
