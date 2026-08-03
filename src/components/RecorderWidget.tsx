@@ -13,7 +13,7 @@ import {
 } from "@/lib/storage";
 import { transcribeMeeting, readTranscriptText, onTranscriptionComplete } from "@/lib/transcription";
 import { getConfig, setSummaryProvider, type AppConfig } from "@/lib/config";
-import { summarizeMeeting, type SummaryResult, type ProviderKind } from "@/lib/summary";
+import { summarizeMeeting, toProviderKind, type SummaryResult, type ProviderKind } from "@/lib/summary";
 import { Waveform } from "@/components/Waveform";
 import { ActionItemsList, type ActionItem } from "@/components/ActionItemsList";
 import { ProviderPicker, type ProviderName } from "@/components/ProviderPicker";
@@ -59,6 +59,16 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
   // disabled/label state while a regenerate run is in flight.
   const [isRegenerating, setIsRegenerating] = useState(false);
   const currentMeetingRef = useRef<MeetingMeta | null>(null);
+  // Guards runSummarization against a stale run clobbering state the widget
+  // has already moved on to. Unlike runTranscription (only ever invoked from
+  // the processing effect, which offers no way to leave that state),
+  // runSummarization is also invoked from the Done-state regenerate button —
+  // and Done leaves New Recording and Save & Close enabled while a regenerate
+  // is in flight. Bumped wherever the widget leaves the state that a
+  // regenerate run belongs to; runSummarization checks it before every
+  // set* call so an abandoned run's result or error never lands after the
+  // fact. See runSummarization below for the actual guard.
+  const summarizeRunRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Wall-clock start time, so the elapsed timer cannot drift when ticks are throttled.
   const startedAtRef = useRef<number>(0);
@@ -124,6 +134,12 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
   // or later, from the picker's confirm button (2 providers configured), by
   // which point the effect that discovered `meetingId` has already returned.
   const runSummarization = useCallback(async (meetingId: string, provider?: ProviderKind) => {
+    // Claim this as the current run. If summarizeRunRef.current no longer
+    // matches `run` by the time an awaited call below resolves, the widget
+    // has since left the state this run belongs to (new recording started,
+    // or Done was dismissed) — every set* call, including in `finally`, must
+    // then be skipped so a late-arriving regenerate cannot yank the UI back.
+    const run = ++summarizeRunRef.current;
     setProcessingStatus("summarizing");
     try {
       // Called with only one argument (no explicit `undefined` forwarded)
@@ -132,6 +148,7 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
       const result = provider
         ? await summarizeMeeting(meetingId, provider)
         : await summarizeMeeting(meetingId);
+      if (summarizeRunRef.current !== run) return;
       setSummaryResult(result);
       // Action items are stored flat (no per-item ids) by design, so the
       // checklist keys off the array position.
@@ -144,6 +161,7 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
         }))
       );
     } catch (err) {
+      if (summarizeRunRef.current !== run) return;
       // The transcript is already on disk, so a summary failure is not
       // data loss — record it and still move on to the done state
       // rather than leaving the widget stuck on "Generating summary…".
@@ -160,7 +178,7 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
           : "Summary generation failed. The transcript is still available."
       );
     } finally {
-      setState("done");
+      if (summarizeRunRef.current === run) setState("done");
     }
   }, []);
 
@@ -220,7 +238,27 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
           // Because the call doesn't start until then, changing the
           // selection beforehand always changes which provider actually
           // runs; no cancellation of an in-flight call is needed.
-          setSelectedProvider(available[0]);
+          //
+          // The default seeds from the user's persisted preference
+          // (config.summary_provider, settable via the idle-state
+          // ProviderPicker) when it names a provider that's actually
+          // available this run, falling back to the same Ollama-preferring
+          // order select_provider_kind uses on the Rust side (see
+          // crates/meeting-notes-summary/src/lib.rs) when there is no
+          // persisted preference or it names something unavailable. Picking
+          // `available[0]` here would silently prefer Claude instead, since
+          // `available` is always built Claude-first above — reversing the
+          // backend's deliberate Ollama-first default and making a user's
+          // explicit Ollama choice dead config the moment both are
+          // configured.
+          const persisted = toProviderKind(cfg?.summary_provider ?? null);
+          const defaultProvider =
+            persisted && available.includes(persisted)
+              ? persisted
+              : available.includes("Ollama")
+                ? "Ollama"
+                : available[0];
+          setSelectedProvider(defaultProvider);
           setProcessingStatus("choosing_provider");
           return;
         }
@@ -329,6 +367,11 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
     setSummaryError(null);
     setActionItems([]);
     setTranscriptText("");
+    // Invalidate any regenerate still in flight for the previous meeting —
+    // see summarizeRunRef above. Without this, a stale regenerate resolving
+    // after this new recording starts would overwrite the state above with
+    // the old meeting's summary.
+    summarizeRunRef.current++;
     try {
       const meeting = await createNewMeeting(title, meetingType);
       currentMeetingRef.current = meeting;
@@ -521,10 +564,19 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
           <TabsTrigger value="transcript">Transcript</TabsTrigger>
         </TabsList>
         <TabsContent value="summary" className="overflow-y-auto flex-1">
-          {summaryError ? (
-            <p className="text-xs text-muted-foreground">{summaryError}</p>
-          ) : (
+          {summaryResult ? (
             <div className="space-y-3">
+              {summaryError && (
+                // A regenerate failure (e.g. Ollama not running) must not
+                // erase a summary that already loaded successfully — show it
+                // as a banner above the still-rendered summary rather than
+                // replacing it, the way the error-only branch below does for
+                // a first-generation failure (where there is nothing to
+                // preserve).
+                <p role="alert" className="text-xs text-red-600">
+                  {summaryError}
+                </p>
+              )}
               {summaryResult && summaryResult.attendees.length > 0 && (
                 // Wording mirrors notes_markdown.rs so the widget and the
                 // saved summary.md describe the same people the same way.
@@ -571,7 +623,11 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
                 </div>
               )}
             </div>
-          )}
+          ) : summaryError ? (
+            // No summary was ever generated for this meeting (first-attempt
+            // failure) — nothing to preserve, so the error stands alone.
+            <p className="text-xs text-muted-foreground">{summaryError}</p>
+          ) : null}
         </TabsContent>
         <TabsContent value="actions" className="overflow-y-auto flex-1">
           <ActionItemsList items={actionItems} onToggle={toggleActionItem} />
@@ -581,10 +637,26 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
         </TabsContent>
       </Tabs>
       <div className="flex gap-2">
-        <Button variant="outline" size="sm" onClick={() => setState("idle")}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            // Leaving Done invalidates any regenerate still in flight — see
+            // summarizeRunRef above — so it cannot land later and yank the
+            // UI back to this (now stale) meeting's Done screen.
+            summarizeRunRef.current++;
+            setState("idle");
+          }}
+        >
           New Recording
         </Button>
-        <Button size="sm" onClick={() => setState("idle")}>
+        <Button
+          size="sm"
+          onClick={() => {
+            summarizeRunRef.current++;
+            setState("idle");
+          }}
+        >
           Save &amp; Close
         </Button>
         {otherProvider() && (
