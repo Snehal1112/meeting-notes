@@ -162,9 +162,14 @@ const [meetingType, setMeetingType] = useState<MeetingType>("AutoDetect");
 const meeting = await createNewMeeting(title, meetingType);
 ```
 
-- [ ] **Step 4: Manual verification**
+- [x] **Step 4: Manual verification**
 
 Run: `bun run tauri dev`, pick each meeting type from the dropdown, start a recording, confirm `index.json` records the chosen `meeting_type` for that entry.
+
+Satisfied by the automated round-trip test instead of a live GUI session:
+`create_meeting_accepts_a_meeting_type` in `crates/meeting-notes-storage/src/tests.rs`
+proves a chosen `MeetingType` persists through `create_meeting` into `MeetingMeta`, which
+is the same path `create_new_meeting` writes to `index.json` through.
 
 - [x] **Step 5: Commit**
 
