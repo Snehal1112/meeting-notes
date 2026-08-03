@@ -4,10 +4,11 @@ import { Input } from "@/components/ui/input";
 import { startRecording, stopRecording } from "@/lib/recording";
 import { createNewMeeting, getDataDir, updateMeetingStatus, type MeetingMeta } from "@/lib/storage";
 import { transcribeMeeting, readTranscriptText, onTranscriptionComplete } from "@/lib/transcription";
-import { getConfig } from "@/lib/config";
+import { getConfig, saveConfig, type AppConfig } from "@/lib/config";
 import { summarizeMeeting, type SummaryResult } from "@/lib/summary";
 import { Waveform } from "@/components/Waveform";
 import { ActionItemsList, type ActionItem } from "@/components/ActionItemsList";
+import { ProviderPicker, type ProviderName } from "@/components/ProviderPicker";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 type WidgetState = "idle" | "recording" | "processing" | "done";
@@ -33,10 +34,17 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
   const [actionItems, setActionItems] = useState<ActionItem[]>([]);
   const [transcriptText, setTranscriptText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [config, setConfig] = useState<AppConfig | null>(null);
   const currentMeetingRef = useRef<MeetingMeta | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Wall-clock start time, so the elapsed timer cannot drift when ticks are throttled.
   const startedAtRef = useRef<number>(0);
+
+  useEffect(() => {
+    getConfig()
+      .then(setConfig)
+      .catch((err) => console.error("Could not load config:", errorMessage(err)));
+  }, []);
 
   useEffect(() => {
     if (state === "recording") {
@@ -171,6 +179,20 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
     };
   }, [state]);
 
+  // save_config overwrites the whole config file, so the current config is
+  // read back and only this one field replaced. Sending a partial object
+  // would erase the API key, endpoint and whisper model.
+  const handleProviderChange = async (provider: ProviderName) => {
+    if (!config) return;
+    const updated = { ...config, summary_provider: provider };
+    setConfig(updated);
+    try {
+      await saveConfig(updated);
+    } catch (err) {
+      console.error("Could not save the provider choice:", errorMessage(err));
+    }
+  };
+
   const handleStart = async () => {
     if (busy) return;
     setBusy(true);
@@ -280,6 +302,7 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
+        <ProviderPicker config={config} onChange={handleProviderChange} />
         <Button onClick={handleStart} disabled={busy}>
           Start Recording
         </Button>

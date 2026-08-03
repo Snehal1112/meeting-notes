@@ -29,6 +29,8 @@ export function ConfigDialog({ open, onSave, onSkip }: ConfigDialogProps) {
       claude_api_key: claudeApiKey || null,
       ollama_endpoint: ollamaEndpoint || null,
       ollama_model: ollamaModel || null,
+      ollama_num_ctx: null,
+      summary_provider: null,
       whisper_model: whisperModel,
     });
   };

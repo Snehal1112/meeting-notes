@@ -4,6 +4,8 @@ export interface AppConfig {
   claude_api_key: string | null;
   ollama_endpoint: string | null;
   ollama_model: string | null;
+  ollama_num_ctx: number | null;
+  summary_provider: string | null;
   whisper_model: string | null;
 }
 

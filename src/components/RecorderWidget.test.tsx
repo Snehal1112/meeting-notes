@@ -26,6 +26,7 @@ vi.mock("@/lib/transcription", () => ({
 
 vi.mock("@/lib/config", () => ({
   getConfig: vi.fn(),
+  saveConfig: vi.fn(),
 }));
 
 vi.mock("@/lib/summary", () => ({
@@ -72,13 +73,16 @@ beforeEach(async () => {
     open_questions: [],
   });
 
-  const { getConfig } = await import("@/lib/config");
+  const { getConfig, saveConfig } = await import("@/lib/config");
   vi.mocked(getConfig).mockReset().mockResolvedValue({
     claude_api_key: null,
     ollama_endpoint: null,
     ollama_model: null,
+    ollama_num_ctx: null,
+    summary_provider: null,
     whisper_model: "base.en",
   });
+  vi.mocked(saveConfig).mockReset().mockResolvedValue(undefined);
 });
 
 describe("RecorderWidget idle state", () => {
@@ -220,6 +224,8 @@ describe("RecorderWidget transcription integration", () => {
       claude_api_key: null,
       ollama_endpoint: null,
       ollama_model: null,
+      ollama_num_ctx: null,
+      summary_provider: null,
       whisper_model: "small.en",
     });
     render(<RecorderWidget />);
@@ -269,6 +275,8 @@ describe("RecorderWidget transcription integration", () => {
       claude_api_key: null,
       ollama_endpoint: null,
       ollama_model: null,
+      ollama_num_ctx: null,
+      summary_provider: null,
       whisper_model: null,
     });
     render(<RecorderWidget />);
@@ -822,5 +830,35 @@ describe("RecorderWidget structured notes", () => {
     );
     expect(keyWarning).toBe(false);
     consoleErrorSpy.mockRestore();
+  });
+});
+
+describe("RecorderWidget provider picker", () => {
+  it("persists a provider change without clearing the rest of the config", async () => {
+    const { getConfig, saveConfig } = await import("@/lib/config");
+    vi.mocked(getConfig).mockResolvedValue({
+      claude_api_key: "sk-test",
+      ollama_endpoint: "http://localhost:11434",
+      ollama_model: "gemma4:e2b",
+      ollama_num_ctx: null,
+      summary_provider: null,
+      whisper_model: "small.en",
+    });
+
+    render(<RecorderWidget />);
+    fireEvent.click(await screen.findByRole("radio", { name: /claude/i }));
+
+    // save_config overwrites the whole file, so a partial write here would
+    // silently erase the api key, endpoint and whisper model.
+    await vi.waitFor(() =>
+      expect(saveConfig).toHaveBeenCalledWith({
+        claude_api_key: "sk-test",
+        ollama_endpoint: "http://localhost:11434",
+        ollama_model: "gemma4:e2b",
+        ollama_num_ctx: null,
+        summary_provider: "claude",
+        whisper_model: "small.en",
+      })
+    );
   });
 });
