@@ -136,3 +136,21 @@ fn an_explicit_choice_cannot_conjure_a_provider_when_none_is_configured() {
     };
     assert_eq!(select_provider_kind(&config), None);
 }
+
+#[test]
+fn an_explicit_zero_num_ctx_falls_back_to_the_default_instead_of_truncating() {
+    // 0 must be treated the same as None (unconfigured), not taken literally:
+    // taken literally it produces a zero input budget (whole transcript in
+    // one chunk) and an Ollama request that silently reverts to Ollama's own
+    // 4096-token default, truncating long meetings without any error.
+    let config = Config {
+        ollama_endpoint: Some("http://localhost:11434".into()),
+        ollama_num_ctx: Some(0),
+        ..Config::default()
+    };
+    let provider = build_provider(&config).expect("provider");
+    assert!(
+        provider.input_budget_words() > 0,
+        "a zero num_ctx must not produce a zero input budget"
+    );
+}

@@ -55,7 +55,14 @@ pub fn build_provider(config: &Config) -> Option<Box<dyn SummaryProvider + Send 
         ProviderKind::Ollama => Some(Box::new(ollama::OllamaProvider::new(
             config.ollama_endpoint.clone().unwrap(),
             config.ollama_model.clone(),
-            config.ollama_num_ctx.unwrap_or(DEFAULT_NUM_CTX),
+            // An explicit 0 (hand-edited config file, or
+            // MEETING_NOTES_OLLAMA_NUM_CTX=0) must fall back to the default
+            // too, not just an absent value: 0 flows through to
+            // input_budget_words() as "whole transcript in one chunk" and to
+            // Ollama's request body, where it silently reverts to Ollama's
+            // own 4096 default and truncates — exactly the bug this default
+            // exists to prevent.
+            config.ollama_num_ctx.filter(|n| *n > 0).unwrap_or(DEFAULT_NUM_CTX),
         ))),
     }
 }
