@@ -2158,6 +2158,7 @@ dependencies = [
  "async-trait",
  "meeting-notes-core",
  "reqwest",
+ "serde",
  "serde_json",
  "tokio",
 ]

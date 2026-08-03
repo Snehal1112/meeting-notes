@@ -5,8 +5,9 @@ pub mod notes;
 
 use meeting_notes_core::config::{Config, DEFAULT_NUM_CTX};
 use meeting_notes_core::summary::SummaryProvider;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub enum ProviderKind {
     Claude,
     Ollama,
@@ -45,25 +46,39 @@ pub fn select_provider_kind(config: &Config) -> Option<ProviderKind> {
 }
 
 /// Builds the provider selected for `config`, or None when no provider is
-/// configured. The unwraps are safe: `select_provider_kind` only returns a
-/// kind whose corresponding config field is Some.
+/// configured.
 pub fn build_provider(config: &Config) -> Option<Box<dyn SummaryProvider + Send + Sync>> {
-    match select_provider_kind(config)? {
-        ProviderKind::Claude => Some(Box::new(claude::ClaudeProvider::new(
-            config.claude_api_key.clone().unwrap(),
-        ))),
-        ProviderKind::Ollama => Some(Box::new(ollama::OllamaProvider::new(
-            config.ollama_endpoint.clone().unwrap(),
-            config.ollama_model.clone(),
-            // An explicit 0 (hand-edited config file, or
-            // MEETING_NOTES_OLLAMA_NUM_CTX=0) must fall back to the default
-            // too, not just an absent value: 0 flows through to
-            // input_budget_words() as "whole transcript in one chunk" and to
-            // Ollama's request body, where it silently reverts to Ollama's
-            // own 4096 default and truncates — exactly the bug this default
-            // exists to prevent.
-            config.ollama_num_ctx.filter(|n| *n > 0).unwrap_or(DEFAULT_NUM_CTX),
-        ))),
+    build_provider_for_kind(config, select_provider_kind(config)?)
+}
+
+/// Builds a provider for an explicitly requested `kind`, ignoring
+/// `select_provider_kind`'s auto-selection — for callers (like a per-call
+/// "regenerate with the other provider" action) that already know which
+/// provider they want. Returns None when that specific kind isn't
+/// configured, even if the other one is.
+pub fn build_provider_for_kind(
+    config: &Config,
+    kind: ProviderKind,
+) -> Option<Box<dyn SummaryProvider + Send + Sync>> {
+    match kind {
+        ProviderKind::Claude => config
+            .claude_api_key
+            .clone()
+            .map(|key| Box::new(claude::ClaudeProvider::new(key)) as Box<dyn SummaryProvider + Send + Sync>),
+        ProviderKind::Ollama => config.ollama_endpoint.clone().map(|endpoint| {
+            Box::new(ollama::OllamaProvider::new(
+                endpoint,
+                config.ollama_model.clone(),
+                // An explicit 0 (hand-edited config file, or
+                // MEETING_NOTES_OLLAMA_NUM_CTX=0) must fall back to the
+                // default too, not just an absent value: 0 flows through to
+                // input_budget_words() as "whole transcript in one chunk" and
+                // to Ollama's request body, where it silently reverts to
+                // Ollama's own 4096 default and truncates — exactly the bug
+                // this default exists to prevent.
+                config.ollama_num_ctx.filter(|n| *n > 0).unwrap_or(DEFAULT_NUM_CTX),
+            )) as Box<dyn SummaryProvider + Send + Sync>
+        }),
     }
 }
 

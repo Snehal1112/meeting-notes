@@ -138,6 +138,38 @@ fn an_explicit_choice_cannot_conjure_a_provider_when_none_is_configured() {
 }
 
 #[test]
+fn build_provider_for_kind_returns_none_when_the_requested_kind_is_not_configured() {
+    let config = Config {
+        ollama_endpoint: Some("http://localhost:11434".into()),
+        ..Config::default()
+    };
+    assert!(build_provider_for_kind(&config, ProviderKind::Claude).is_none());
+}
+
+#[test]
+fn build_provider_for_kind_returns_a_provider_for_the_requested_kind_regardless_of_the_default() {
+    // Both configured; default precedence would pick Ollama, but an explicit
+    // override for Claude must still be honoured.
+    let config = both_configured();
+    assert!(build_provider_for_kind(&config, ProviderKind::Claude).is_some());
+    assert!(build_provider_for_kind(&config, ProviderKind::Ollama).is_some());
+}
+
+#[test]
+fn build_provider_for_kind_falls_back_to_the_default_num_ctx_for_ollama() {
+    let config = Config {
+        ollama_endpoint: Some("http://localhost:11434".into()),
+        ollama_num_ctx: Some(0),
+        ..Config::default()
+    };
+    let provider = build_provider_for_kind(&config, ProviderKind::Ollama).expect("provider");
+    assert!(
+        provider.input_budget_words() > 0,
+        "a zero num_ctx must not produce a zero input budget"
+    );
+}
+
+#[test]
 fn an_explicit_zero_num_ctx_falls_back_to_the_default_instead_of_truncating() {
     // 0 must be treated the same as None (unconfigured), not taken literally:
     // taken literally it produces a zero input budget (whole transcript in

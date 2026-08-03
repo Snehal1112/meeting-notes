@@ -21,5 +21,7 @@ export interface SummaryResult {
   open_questions: string[];
 }
 
-export const summarizeMeeting = (meetingId: string) =>
-  invoke<SummaryResult>("summarize_meeting", { meetingId });
+export type ProviderKind = "Claude" | "Ollama";
+
+export const summarizeMeeting = (meetingId: string, providerOverride?: ProviderKind) =>
+  invoke<SummaryResult>("summarize_meeting", { meetingId, providerOverride: providerOverride ?? null });

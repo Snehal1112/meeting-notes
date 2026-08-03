@@ -3,13 +3,16 @@ use meeting_notes_core::meeting::{MeetingMeta, MeetingStatus};
 use meeting_notes_core::notes_markdown::render_summary_markdown;
 use meeting_notes_core::summary::{SummaryProvider, SummaryResult};
 use meeting_notes_storage::{base_dir, load_index, update_meeting};
-use meeting_notes_summary::build_provider;
-use meeting_notes_summary::notes::generate_notes;
+use meeting_notes_summary::{build_provider, build_provider_for_kind, notes::generate_notes, ProviderKind};
 use std::path::Path;
 use tauri::{AppHandle, Emitter};
 
 #[tauri::command]
-pub async fn summarize_meeting(app: AppHandle, meeting_id: String) -> Result<SummaryResult, String> {
+pub async fn summarize_meeting(
+    app: AppHandle,
+    meeting_id: String,
+    provider_override: Option<ProviderKind>,
+) -> Result<SummaryResult, String> {
     let base = base_dir().ok_or("could not resolve data directory")?;
     let meeting = find_meeting(&base, &meeting_id)?;
 
@@ -19,8 +22,17 @@ pub async fn summarize_meeting(app: AppHandle, meeting_id: String) -> Result<Sum
     // entering run_summarize_or_mark_failed's failure-marking wrapper, so
     // this error path never touches the meeting's status in the index.
     let config = resolve_config();
-    let Some(provider) = build_provider(&config) else {
-        return Err("not_configured".to_string());
+    let provider = match provider_override {
+        // An explicit override (e.g. "regenerate with the other provider")
+        // bypasses select_provider_kind's auto-selection entirely, but must
+        // still fail the same benign way if that specific provider turns out
+        // to be unconfigured.
+        Some(kind) => build_provider_for_kind(&config, kind)
+            .ok_or_else(|| format!("{kind:?} is not configured"))?,
+        None => match build_provider(&config) {
+            Some(provider) => provider,
+            None => return Err("not_configured".to_string()),
+        },
     };
 
     let (result, updated) = run_summarize_or_mark_failed(&base, meeting, provider).await?;
