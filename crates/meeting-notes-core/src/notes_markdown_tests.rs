@@ -126,3 +126,50 @@ fn takes_the_date_from_the_meeting_not_the_model() {
     let md = render_summary_markdown(&full_result(), &meeting());
     assert!(md.contains("**Date:** 2026-08-02"));
 }
+
+#[test]
+fn uses_hard_line_breaks_between_date_and_type() {
+    let md = render_summary_markdown(&full_result(), &meeting());
+    assert!(
+        md.contains("**Date:** 2026-08-02  \n**Type:**"),
+        "metadata should have hard break between Date and Type. got:\n{md}"
+    );
+}
+
+#[test]
+fn uses_hard_line_breaks_between_type_and_attendees() {
+    let md = render_summary_markdown(&full_result(), &meeting());
+    assert!(
+        md.contains("**Type:** Team sync - Commit planning  \n**Attendees mentioned:**"),
+        "metadata should have hard break between Type and Attendees. got:\n{md}"
+    );
+}
+
+#[test]
+fn uses_hard_line_breaks_between_attendees_and_recording_length() {
+    let md = render_summary_markdown(&full_result(), &meeting());
+    assert!(
+        md.contains("**Attendees mentioned:** Parker, Cindy (referenced but not confirmed on the call: Craig)  \n**Recording length:**"),
+        "metadata should have hard break between Attendees and Recording length. got:\n{md}"
+    );
+}
+
+#[test]
+fn omits_trailing_hard_break_on_last_metadata_line() {
+    let mut m = meeting();
+    m.duration_seconds = None;
+    let mut result = full_result();
+    result.referenced_people.clear();
+    let md = render_summary_markdown(&result, &m);
+    // Attendees should be the last metadata line when duration is absent.
+    // It should not have a trailing hard break before the blank line and ASR caveat.
+    assert!(
+        !md.contains("**Attendees mentioned:** Parker, Cindy  \n\n"),
+        "last metadata line should not have trailing hard break. got:\n{md}"
+    );
+    // But it should still end with a single newline.
+    assert!(
+        md.contains("**Attendees mentioned:** Parker, Cindy\n\n"),
+        "last metadata line should end with single newline. got:\n{md}"
+    );
+}

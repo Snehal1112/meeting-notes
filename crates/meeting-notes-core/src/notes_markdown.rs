@@ -22,29 +22,36 @@ pub fn render_summary_markdown(result: &SummaryResult, meeting: &MeetingMeta) ->
     };
     out.push_str(&format!("# {title}\n\n"));
 
+    // Collect metadata lines and join with hard line breaks (two spaces + newline).
+    // The last line gets a single newline to avoid trailing whitespace.
+    let mut metadata = Vec::new();
+
     // created_at is RFC 3339, so the date is the part before the 'T'.
     let date = meeting.created_at.split('T').next().unwrap_or("");
-    out.push_str(&format!("**Date:** {date}\n"));
+    metadata.push(format!("**Date:** {date}"));
 
     if !result.meeting_type.trim().is_empty() {
-        out.push_str(&format!("**Type:** {}\n", result.meeting_type));
+        metadata.push(format!("**Type:** {}", result.meeting_type));
     }
 
     if !result.attendees.is_empty() {
-        out.push_str(&format!("**Attendees mentioned:** {}", result.attendees.join(", ")));
+        let mut attendees = format!("**Attendees mentioned:** {}", result.attendees.join(", "));
         if !result.referenced_people.is_empty() {
-            out.push_str(&format!(
+            attendees.push_str(&format!(
                 " (referenced but not confirmed on the call: {})",
                 result.referenced_people.join(", ")
             ));
         }
-        out.push('\n');
+        metadata.push(attendees);
     }
 
     if let Some(seconds) = meeting.duration_seconds {
         let minutes = (seconds as f64 / 60.0).round() as i64;
-        out.push_str(&format!("**Recording length:** ~{minutes} minutes\n"));
+        metadata.push(format!("**Recording length:** ~{minutes} minutes"));
     }
+
+    out.push_str(&metadata.join("  \n"));
+    out.push('\n');
 
     out.push_str(&format!("\n{ASR_CAVEAT}\n"));
 
