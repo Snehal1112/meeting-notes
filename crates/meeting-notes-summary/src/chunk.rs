@@ -56,6 +56,20 @@ pub fn merge_partials(partials: Vec<SummaryResult>) -> SummaryResult {
     }
 
     merged.summary = summaries.join(" ");
+
+    // A model's attendee/referenced judgement is inconsistent across passes
+    // and chunks, so the same person can land in both lists — e.g. chunk 1
+    // places them in attendees, chunk 2 in referenced_people. Attendee is the
+    // stronger claim, so it wins; otherwise the header renders the
+    // self-contradictory "referenced but not confirmed on the call: X" for
+    // someone already listed as confirmed.
+    merged.referenced_people.retain(|referenced| {
+        !merged
+            .attendees
+            .iter()
+            .any(|attendee| attendee.eq_ignore_ascii_case(referenced))
+    });
+
     merged
 }
 

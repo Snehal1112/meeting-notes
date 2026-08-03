@@ -93,10 +93,12 @@ fn merge_deduplicates_identical_points_within_a_topic() {
 
 #[test]
 fn merge_deduplicates_decisions_questions_and_people() {
-    let mut a = SummaryResult::default();
-    a.decisions = vec!["Recuse Cormac".to_string()];
-    a.open_questions = vec!["Who covers chat?".to_string()];
-    a.attendees = vec!["Parker".to_string()];
+    let a = SummaryResult {
+        decisions: vec!["Recuse Cormac".to_string()],
+        open_questions: vec!["Who covers chat?".to_string()],
+        attendees: vec!["Parker".to_string()],
+        ..SummaryResult::default()
+    };
     let b = a.clone();
 
     let merged = merge_partials(vec![a, b]);
@@ -107,26 +109,40 @@ fn merge_deduplicates_decisions_questions_and_people() {
 
 #[test]
 fn merge_keeps_the_first_non_empty_meeting_type() {
-    let mut a = SummaryResult::default();
-    let mut b = SummaryResult::default();
-    b.meeting_type = "Team sync".to_string();
+    let a = SummaryResult::default();
+    let b = SummaryResult { meeting_type: "Team sync".to_string(), ..SummaryResult::default() };
     let merged = merge_partials(vec![a.clone(), b]);
     assert_eq!(merged.meeting_type, "Team sync");
 
-    a.meeting_type = "Standup".to_string();
+    let a = SummaryResult { meeting_type: "Standup".to_string(), ..SummaryResult::default() };
     let merged = merge_partials(vec![a, SummaryResult::default()]);
     assert_eq!(merged.meeting_type, "Standup");
 }
 
 #[test]
 fn merge_joins_summaries_from_every_partial() {
-    let mut a = SummaryResult::default();
-    a.summary = "First half.".to_string();
-    let mut b = SummaryResult::default();
-    b.summary = "Second half.".to_string();
+    let a = SummaryResult { summary: "First half.".to_string(), ..SummaryResult::default() };
+    let b = SummaryResult { summary: "Second half.".to_string(), ..SummaryResult::default() };
     let merged = merge_partials(vec![a, b]);
     assert!(merged.summary.contains("First half."));
     assert!(merged.summary.contains("Second half."));
+}
+
+#[test]
+fn merge_drops_a_referenced_person_who_is_also_an_attendee() {
+    // A model's attendee/referenced judgement is inconsistent across chunks:
+    // one chunk can place Parker in attendees, another in referenced_people.
+    // The self-contradictory header line this produces ("Attendees mentioned:
+    // Parker (referenced but not confirmed on the call: Parker)") must never
+    // render — attendee is the stronger claim and wins.
+    let a = SummaryResult { attendees: vec!["Parker".to_string()], ..SummaryResult::default() };
+    let b = SummaryResult {
+        referenced_people: vec!["parker".to_string()],
+        ..SummaryResult::default()
+    };
+    let merged = merge_partials(vec![a, b]);
+    assert_eq!(merged.attendees, vec!["Parker".to_string()]);
+    assert!(merged.referenced_people.is_empty());
 }
 
 #[test]
