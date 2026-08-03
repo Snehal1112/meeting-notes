@@ -1,5 +1,40 @@
 # Notion-Style Summary Format & Attendee Identification Implementation Plan
 
+> # ⛔ SUPERSEDED — DO NOT EXECUTE
+>
+> Plan 13 (`2026-08-02-13-structured-meeting-notes.md`) shipped this plan's
+> goals first, against a different architecture. Every task below is written
+> against the pre-plan-13 code and **running it would revert working,
+> verified features**:
+>
+> | Task | Would revert |
+> |---|---|
+> | 1 | `SummaryResult` → a 2-variant enum, losing `topics`, `open_questions`, `referenced_people`, `summary`, `meeting_type`, and the `#[serde(default)]` that makes the multi-pass merge possible |
+> | 1 | `SummaryProvider` → `generate(transcript, prompt_text)`. The shipped trait is `complete_json` + `input_budget_words`, transport-only so prompts live once in the summary crate |
+> | 2 | Reintroduces `parse_summary_response`, deleted in plan 13 |
+> | 2 | Model id → `claude-sonnet-4-6`. Repo is on `claude-sonnet-5` (`f73ffe4`) |
+> | 2 | Drops Ollama's `options.num_ctx` — **this is the silent-truncation bug behind the thin summaries that prompted plan 13** |
+> | 3 | Removes chunking (`split_transcript` / `merge_partials`) |
+> | 3 | Rewrites `summarize_meeting`, dropping plan 12's `run_summarize_or_mark_failed`. Also wrong signature: takes `MeetingMeta`, actual is `meeting_id: String` |
+> | 3 | Adds a `render_summary_markdown` duplicating `notes_markdown.rs` |
+>
+> It also cannot start: it depends on `templates::template_for` /
+> `prompt_text_for` from plan 17 task 3, which was reshaped into
+> `notes_pass_for`. And it uses `assignee` where the code uses `owner`.
+>
+> **Where its goals actually landed:**
+>
+> - structured result with attendees + assignee-tagged actions → plan 13
+>   (`attendees`, `referenced_people`, `ActionItem::owner`)
+> - type-aware prompts → plan 17 task 3, reshaped (`notes_pass_for`)
+> - Notion-style `summary.md` → `notes_markdown.rs`, rendering the reference
+>   document supplied as the standard
+> - assignees in the frontend → `ActionItemsList.tsx`
+> - attendees in the frontend → commit `585d5c3`, the only piece still
+>   outstanding when this plan was reviewed
+>
+> Nothing here is left to do. Kept for provenance.
+
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking. Depends on plan 17 (meeting types + prompt templates) being complete.
 
 **Goal:** Upgrade `SummaryResult` from the flat `{ summary, action_items: string[] }` shape (plan 09) to a structured, template-aware result with attendees and assignee-tagged action items; wire `ClaudeProvider`/`OllamaProvider` to use plan 17's templates; render `summary.md` in the correct format per meeting type; update the frontend to display attendees and assignees.

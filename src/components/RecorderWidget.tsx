@@ -383,6 +383,17 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
             <p className="text-xs text-muted-foreground">{summaryError}</p>
           ) : (
             <div className="space-y-3">
+              {summaryResult && summaryResult.attendees.length > 0 && (
+                // Wording mirrors notes_markdown.rs so the widget and the
+                // saved summary.md describe the same people the same way.
+                // "mentioned" is deliberate: names come from what was said in
+                // the transcript, not from any speaker identification.
+                <p className="text-xs text-muted-foreground">
+                  Attendees mentioned: {summaryResult.attendees.join(", ")}
+                  {summaryResult.referenced_people.length > 0 &&
+                    ` (referenced but not confirmed on the call: ${summaryResult.referenced_people.join(", ")})`}
+                </p>
+              )}
               <p>{summaryResult?.summary}</p>
               {summaryResult?.topics.map(
                 (topic, i) =>
