@@ -40,7 +40,17 @@ pub struct SummaryResult {
     pub open_questions: Vec<String>,
 }
 
+/// A backend that can answer a JSON-only prompt.
+///
+/// This is transport only, on purpose. Prompt construction lives once in the
+/// summary crate so the three generation passes are not duplicated per
+/// provider.
 #[async_trait]
 pub trait SummaryProvider {
-    async fn generate(&self, transcript: &str) -> Result<SummaryResult, String>;
+    /// Sends `prompt` and returns the raw JSON text of the response.
+    async fn complete_json(&self, prompt: &str) -> Result<String, String>;
+
+    /// Roughly how many transcript words this provider can accept at once.
+    /// Longer transcripts are chunked to fit.
+    fn input_budget_words(&self) -> usize;
 }

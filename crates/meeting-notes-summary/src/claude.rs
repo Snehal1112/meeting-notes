@@ -1,11 +1,7 @@
 use async_trait::async_trait;
-use meeting_notes_core::summary::{SummaryProvider, SummaryResult};
+use meeting_notes_core::summary::SummaryProvider;
 use serde_json::json;
 use std::time::Duration;
-
-const SYSTEM_PROMPT: &str = "You summarize meeting transcripts. Respond with ONLY a JSON object \
-of the form {\"summary\": string, \"action_items\": string[]}. No preamble, no markdown fences. \
-Keep the summary to 3-5 sentences. Extract action items as short imperative phrases.";
 
 /// Hard cap on how long a single Claude API call is allowed to hang. Without
 /// this, a stalled connection blocks the summarize flow indefinitely with no
@@ -29,10 +25,6 @@ impl ClaudeProvider {
             .expect("failed to build reqwest client for Claude API");
         ClaudeProvider { api_key, client }
     }
-}
-
-pub fn parse_summary_response(raw: &str) -> Result<SummaryResult, String> {
-    serde_json::from_str(raw).map_err(|e| format!("failed to parse LLM response as JSON: {e}"))
 }
 
 /// Extracts the text of the first text-type block from a parsed Claude API
@@ -62,16 +54,17 @@ pub fn extract_response_text(parsed: &serde_json::Value) -> Result<&str, String>
 
 #[async_trait]
 impl SummaryProvider for ClaudeProvider {
-    async fn generate(&self, transcript: &str) -> Result<SummaryResult, String> {
+    fn input_budget_words(&self) -> usize {
+        // The context window is 200k tokens, far beyond any meeting
+        // transcript, so this effectively disables chunking for Claude.
+        100_000
+    }
+
+    async fn complete_json(&self, prompt: &str) -> Result<String, String> {
         let body = json!({
             "model": "claude-sonnet-5",
-            // claude-sonnet-5 runs adaptive thinking by default when
-            // `thinking` is omitted, and max_tokens caps thinking + response
-            // text combined. 1024 was sized for response text alone and
-            // could be exhausted by thinking before any JSON is written.
-            "max_tokens": 4096,
-            "system": SYSTEM_PROMPT,
-            "messages": [{ "role": "user", "content": transcript }]
+            "max_tokens": 8192,
+            "messages": [{ "role": "user", "content": prompt }]
         });
 
         let response = self
@@ -101,8 +94,6 @@ impl SummaryProvider for ClaudeProvider {
             .await
             .map_err(|e| format!("failed to parse Claude API response: {e}"))?;
 
-        let text = extract_response_text(&parsed)?;
-
-        parse_summary_response(text)
+        extract_response_text(&parsed).map(|s| s.to_string())
     }
 }

@@ -1,5 +1,4 @@
 use super::claude;
-use meeting_notes_core::summary::SummaryProvider;
 
 #[test]
 fn extracts_text_block_when_it_is_the_first_content_block() {
@@ -64,15 +63,17 @@ fn errors_when_no_text_block_is_present_and_not_truncated() {
 
 #[tokio::test]
 #[ignore] // requires a real MEETING_NOTES_CLAUDE_API_KEY and makes a live network call
-async fn generates_summary_via_real_claude_api() {
+async fn completes_json_via_real_claude_api() {
+    use meeting_notes_core::summary::SummaryProvider;
     let api_key = std::env::var("MEETING_NOTES_CLAUDE_API_KEY")
         .expect("set MEETING_NOTES_CLAUDE_API_KEY to run this test");
     let provider = claude::ClaudeProvider::new(api_key);
 
-    let result = provider
-        .generate("Alice: Let's ship the widget by Friday. Bob: I'll write the tests.")
+    let raw = provider
+        .complete_json(r#"Respond with ONLY {"ok": true} and nothing else."#)
         .await
         .expect("real Claude API call should succeed");
 
-    assert!(!result.summary.is_empty());
+    let parsed: serde_json::Value = serde_json::from_str(&raw).expect("valid JSON");
+    assert_eq!(parsed["ok"], true);
 }

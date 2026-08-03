@@ -2,7 +2,7 @@ pub mod claude;
 pub mod ollama;
 pub mod chunk;
 
-use meeting_notes_core::config::Config;
+use meeting_notes_core::config::{Config, DEFAULT_NUM_CTX};
 use meeting_notes_core::summary::SummaryProvider;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -37,6 +37,7 @@ pub fn build_provider(config: &Config) -> Option<Box<dyn SummaryProvider + Send 
         ProviderKind::Ollama => Some(Box::new(ollama::OllamaProvider::new(
             config.ollama_endpoint.clone().unwrap(),
             config.ollama_model.clone(),
+            config.ollama_num_ctx.unwrap_or(DEFAULT_NUM_CTX),
         ))),
     }
 }

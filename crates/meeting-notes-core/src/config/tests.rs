@@ -38,6 +38,7 @@ fn env_takes_precedence_over_file() {
         claude_api_key: Some("from-file".into()),
         ollama_endpoint: Some("http://file-endpoint".into()),
         ollama_model: None,
+        ollama_num_ctx: None,
         whisper_model: Some("base.en".into()),
     };
     unsafe { std::env::set_var("MEETING_NOTES_CLAUDE_API_KEY", "from-env") };
@@ -72,6 +73,24 @@ fn merge_fills_ollama_model_from_the_file_config() {
     };
     let resolved = env_config.merge(file_config);
     assert_eq!(resolved.ollama_model, Some("from-file".to_string()));
+}
+
+#[test]
+fn resolves_ollama_num_ctx_from_env() {
+    let _guard = lock_env();
+    unsafe { std::env::set_var("MEETING_NOTES_OLLAMA_NUM_CTX", "16384") };
+    let config = Config::from_env();
+    assert_eq!(config.ollama_num_ctx, Some(16384));
+    unsafe { std::env::remove_var("MEETING_NOTES_OLLAMA_NUM_CTX") };
+}
+
+#[test]
+fn ignores_a_non_numeric_num_ctx_instead_of_failing_startup() {
+    let _guard = lock_env();
+    unsafe { std::env::set_var("MEETING_NOTES_OLLAMA_NUM_CTX", "lots") };
+    let config = Config::from_env();
+    assert_eq!(config.ollama_num_ctx, None);
+    unsafe { std::env::remove_var("MEETING_NOTES_OLLAMA_NUM_CTX") };
 }
 
 #[test]

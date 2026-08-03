@@ -2,6 +2,12 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+/// Ollama's own default context window is 4096 tokens and it silently
+/// truncates anything longer, so the app always sets this explicitly. 8192
+/// was measured to fit in memory on a typical laptop; 16384 failed to
+/// allocate.
+pub const DEFAULT_NUM_CTX: u32 = 8192;
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Config {
     pub claude_api_key: Option<String>,
@@ -11,6 +17,7 @@ pub struct Config {
     /// has no universally correct value and falls back to the provider's
     /// own default when unset.
     pub ollama_model: Option<String>,
+    pub ollama_num_ctx: Option<u32>,
     pub whisper_model: Option<String>,
 }
 
@@ -20,6 +27,11 @@ impl Config {
             claude_api_key: std::env::var("MEETING_NOTES_CLAUDE_API_KEY").ok(),
             ollama_endpoint: std::env::var("MEETING_NOTES_OLLAMA_ENDPOINT").ok(),
             ollama_model: std::env::var("MEETING_NOTES_OLLAMA_MODEL").ok(),
+            // A malformed value is ignored rather than fatal: a typo in an
+            // env var should not stop the app from starting.
+            ollama_num_ctx: std::env::var("MEETING_NOTES_OLLAMA_NUM_CTX")
+                .ok()
+                .and_then(|v| v.parse().ok()),
             whisper_model: std::env::var("MEETING_NOTES_WHISPER_MODEL").ok(),
         }
     }
@@ -29,6 +41,7 @@ impl Config {
         self.claude_api_key = self.claude_api_key.or(other.claude_api_key);
         self.ollama_endpoint = self.ollama_endpoint.or(other.ollama_endpoint);
         self.ollama_model = self.ollama_model.or(other.ollama_model);
+        self.ollama_num_ctx = self.ollama_num_ctx.or(other.ollama_num_ctx);
         self.whisper_model = self.whisper_model.or(other.whisper_model);
         self
     }

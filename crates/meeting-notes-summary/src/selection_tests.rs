@@ -7,6 +7,7 @@ fn selects_ollama_when_both_configured() {
         claude_api_key: Some("sk-test".into()),
         ollama_endpoint: Some("http://localhost:11434".into()),
         ollama_model: None,
+        ollama_num_ctx: None,
         whisper_model: None,
     };
     assert_eq!(select_provider_kind(&config), Some(ProviderKind::Ollama));
@@ -18,6 +19,7 @@ fn selects_claude_when_only_claude_configured() {
         claude_api_key: Some("sk-test".into()),
         ollama_endpoint: None,
         ollama_model: None,
+        ollama_num_ctx: None,
         whisper_model: None,
     };
     assert_eq!(select_provider_kind(&config), Some(ProviderKind::Claude));
@@ -29,6 +31,7 @@ fn selects_ollama_when_only_ollama_configured() {
         claude_api_key: None,
         ollama_endpoint: Some("http://localhost:11434".into()),
         ollama_model: None,
+        ollama_num_ctx: None,
         whisper_model: None,
     };
     assert_eq!(select_provider_kind(&config), Some(ProviderKind::Ollama));
@@ -40,6 +43,7 @@ fn selects_none_when_neither_configured() {
         claude_api_key: None,
         ollama_endpoint: None,
         ollama_model: None,
+        ollama_num_ctx: None,
         whisper_model: None,
     };
     assert_eq!(select_provider_kind(&config), None);
@@ -51,6 +55,7 @@ fn build_provider_returns_none_when_neither_configured() {
         claude_api_key: None,
         ollama_endpoint: None,
         ollama_model: None,
+        ollama_num_ctx: None,
         whisper_model: None,
     };
     assert!(build_provider(&config).is_none());
@@ -62,6 +67,7 @@ fn build_provider_returns_a_provider_when_configured() {
         claude_api_key: None,
         ollama_endpoint: Some("http://localhost:11434".into()),
         ollama_model: None,
+        ollama_num_ctx: None,
         whisper_model: None,
     };
     assert!(build_provider(&config).is_some());

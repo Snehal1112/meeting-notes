@@ -1,16 +1,12 @@
 use async_trait::async_trait;
-use meeting_notes_core::summary::{SummaryProvider, SummaryResult};
+use meeting_notes_core::summary::SummaryProvider;
 use serde_json::json;
 use std::time::Duration;
-
-const PROMPT_PREFIX: &str = "You summarize meeting transcripts. Respond with ONLY a JSON object \
-of the form {\"summary\": string, \"action_items\": string[]}. No preamble, no markdown fences. \
-Keep the summary to 3-5 sentences. Extract action items as short imperative phrases.\n\nTranscript:\n";
 
 /// Model used when the config does not name one. Kept generic on purpose:
 /// whichever model the user has pulled locally is their choice, and this is
 /// only the fallback.
-pub const DEFAULT_MODEL: &str = "llama3";
+pub const DEFAULT_MODEL: &str = "gemma4:e2b";
 
 /// Hard cap on how long a single Ollama call is allowed to hang, mirroring
 /// the same protection on the Claude provider. It is much longer than
@@ -21,11 +17,12 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(600);
 pub struct OllamaProvider {
     endpoint: String,
     model: String,
+    num_ctx: u32,
     client: reqwest::Client,
 }
 
 impl OllamaProvider {
-    pub fn new(endpoint: String, model: Option<String>) -> Self {
+    pub fn new(endpoint: String, model: Option<String>, num_ctx: u32) -> Self {
         // Building a client only fails in a broken environment, never from
         // user input, so panicking here matches ClaudeProvider rather than
         // threading a Result through every call site.
@@ -36,6 +33,7 @@ impl OllamaProvider {
         OllamaProvider {
             endpoint,
             model: model.unwrap_or_else(|| DEFAULT_MODEL.to_string()),
+            num_ctx,
             client,
         }
     }
@@ -47,19 +45,27 @@ impl OllamaProvider {
     }
 }
 
-pub fn parse_summary_response(raw: &str) -> Result<SummaryResult, String> {
-    serde_json::from_str(raw).map_err(|e| format!("failed to parse LLM response as JSON: {e}"))
-}
-
 #[async_trait]
 impl SummaryProvider for OllamaProvider {
-    async fn generate(&self, transcript: &str) -> Result<SummaryResult, String> {
-        let prompt = format!("{PROMPT_PREFIX}{transcript}");
+    fn input_budget_words(&self) -> usize {
+        // English runs about 0.75 words per token, and the prompt plus the
+        // generated response must share num_ctx with the transcript. Half
+        // the window, scaled by that ratio, leaves comfortable headroom.
+        (self.num_ctx as usize / 2) * 3 / 4
+    }
+
+    async fn complete_json(&self, prompt: &str) -> Result<String, String> {
         let body = json!({
             "model": self.model,
             "prompt": prompt,
             "stream": false,
-            "format": "json"
+            "format": "json",
+            "options": {
+                // Without this Ollama applies its 4096 default and silently
+                // drops the front of the prompt.
+                "num_ctx": self.num_ctx,
+                "temperature": 0.2
+            }
         });
 
         let url = format!("{}/api/generate", self.endpoint.trim_end_matches('/'));
@@ -85,10 +91,9 @@ impl SummaryProvider for OllamaProvider {
             .await
             .map_err(|e| format!("failed to parse Ollama response: {e}"))?;
 
-        let text = parsed["response"]
+        parsed["response"]
             .as_str()
-            .ok_or("unexpected Ollama response shape")?;
-
-        parse_summary_response(text)
+            .map(|s| s.to_string())
+            .ok_or_else(|| "unexpected Ollama response shape".to_string())
     }
 }
