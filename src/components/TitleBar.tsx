@@ -11,9 +11,11 @@ export function TitleBar() {
           getCurrentWindow().startDragging();
         }
       }}
-      className="h-8 flex items-center px-3 text-xs text-muted-foreground select-none border-b bg-background"
+      className="h-8 flex items-center justify-center gap-1 select-none bg-muted/50"
     >
-      Meeting Notes
+      {[0, 1, 2].map((i) => (
+        <span key={i} className="h-1 w-1 rounded-full bg-muted-foreground/40" />
+      ))}
     </div>
   );
 }

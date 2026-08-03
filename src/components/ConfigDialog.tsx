@@ -37,10 +37,10 @@ export function ConfigDialog({ open, onSave, onSkip }: ConfigDialogProps) {
 
   return (
     <div className="flex flex-col gap-3 p-4">
-      <h2 className="font-heading text-sm font-medium">Set up Meeting Notes</h2>
+      <h2 className="font-heading text-sm font-semibold tracking-tight">Set up Meeting Notes</h2>
       <div className="space-y-3">
         <div>
-          <label htmlFor="claude-key" className="text-xs text-muted-foreground">
+          <label htmlFor="claude-key" className="text-xs font-medium text-muted-foreground">
             Claude API Key (optional)
           </label>
           <Input
@@ -49,10 +49,11 @@ export function ConfigDialog({ open, onSave, onSkip }: ConfigDialogProps) {
             value={claudeApiKey}
             onChange={(e) => setClaudeApiKey(e.target.value)}
             placeholder="sk-ant-..."
+            className="mt-1"
           />
         </div>
         <div>
-          <label htmlFor="ollama-endpoint" className="text-xs text-muted-foreground">
+          <label htmlFor="ollama-endpoint" className="text-xs font-medium text-muted-foreground">
             Ollama Endpoint (optional)
           </label>
           <Input
@@ -60,10 +61,11 @@ export function ConfigDialog({ open, onSave, onSkip }: ConfigDialogProps) {
             value={ollamaEndpoint}
             onChange={(e) => setOllamaEndpoint(e.target.value)}
             placeholder="http://localhost:11434"
+            className="mt-1"
           />
         </div>
         <div>
-          <label htmlFor="ollama-model" className="text-xs text-muted-foreground">
+          <label htmlFor="ollama-model" className="text-xs font-medium text-muted-foreground">
             Ollama model (optional)
           </label>
           <Input
@@ -71,15 +73,16 @@ export function ConfigDialog({ open, onSave, onSkip }: ConfigDialogProps) {
             value={ollamaModel}
             onChange={(e) => setOllamaModel(e.target.value)}
             placeholder="llama3"
+            className="mt-1"
           />
         </div>
         <div>
-          <label htmlFor="whisper-model" className="text-xs text-muted-foreground">
+          <label htmlFor="whisper-model" className="text-xs font-medium text-muted-foreground">
             Whisper model
           </label>
           <select
             id="whisper-model"
-            className="w-full border rounded-md h-9 px-2 text-sm"
+            className="mt-1 w-full border rounded-md h-9 px-2 text-sm"
             value={whisperModel}
             onChange={(e) => setWhisperModel(e.target.value)}
           >
