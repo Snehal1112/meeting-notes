@@ -1,4 +1,4 @@
-use meeting_notes_core::meeting::MeetingMeta;
+use meeting_notes_core::meeting::{MeetingMeta, MeetingType};
 use meeting_notes_storage::{
     append_to_index, base_dir, create_meeting, find_orphaned_meetings, update_meeting,
 };
@@ -6,7 +6,8 @@ use meeting_notes_storage::{
 #[tauri::command]
 pub fn create_new_meeting(title: String) -> Result<MeetingMeta, String> {
     let base = base_dir().ok_or("could not resolve data directory")?;
-    let meta = create_meeting(&base, &title).map_err(|e| e.to_string())?;
+    let meta =
+        create_meeting(&base, &title, MeetingType::AutoDetect).map_err(|e| e.to_string())?;
     append_to_index(&base, &meta).map_err(|e| e.to_string())?;
     Ok(meta)
 }

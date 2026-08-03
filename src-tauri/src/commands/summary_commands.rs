@@ -139,6 +139,7 @@ fn write_summary_files(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use meeting_notes_core::meeting::MeetingType;
     use meeting_notes_core::summary::{ActionItem, Topic};
     use meeting_notes_storage::{append_to_index, create_meeting};
     use meeting_notes_summary::claude::ClaudeProvider;
@@ -159,7 +160,7 @@ mod tests {
     #[test]
     fn find_meeting_returns_the_matching_meeting_from_the_index() {
         let base = temp_base("finds-match");
-        let meeting = create_meeting(&base, "Test meeting").expect("create meeting");
+        let meeting = create_meeting(&base, "Test meeting", MeetingType::AutoDetect).expect("create meeting");
         append_to_index(&base, &meeting).expect("append to index");
 
         let found = find_meeting(&base, &meeting.id).expect("meeting found");
@@ -172,7 +173,7 @@ mod tests {
     #[test]
     fn find_meeting_errors_when_id_not_in_index() {
         let base = temp_base("missing-id");
-        let meeting = create_meeting(&base, "Test meeting").expect("create meeting");
+        let meeting = create_meeting(&base, "Test meeting", MeetingType::AutoDetect).expect("create meeting");
         append_to_index(&base, &meeting).expect("append to index");
 
         let result = find_meeting(&base, "nonexistent-id");
@@ -184,7 +185,7 @@ mod tests {
     #[test]
     fn write_summary_files_writes_the_rendered_notes_and_action_items() {
         let base = temp_base("writes-files");
-        let meeting = create_meeting(&base, "Test meeting").expect("create meeting");
+        let meeting = create_meeting(&base, "Test meeting", MeetingType::AutoDetect).expect("create meeting");
         let meeting_dir = meeting.dir_path(&base);
 
         let result = SummaryResult {
@@ -225,7 +226,7 @@ mod tests {
     #[test]
     fn mark_meeting_failed_persists_failed_status_in_the_index() {
         let base = temp_base("marks-failed");
-        let meeting = create_meeting(&base, "Test meeting").expect("create meeting");
+        let meeting = create_meeting(&base, "Test meeting", MeetingType::AutoDetect).expect("create meeting");
         append_to_index(&base, &meeting).expect("append to index");
 
         mark_meeting_failed(&base, meeting.clone());
@@ -246,7 +247,7 @@ mod tests {
         // base_dir but an index write that never happened) — update_meeting
         // returns an error, which must be logged, not panicked on.
         let base = temp_base("missing-from-index");
-        let meeting = create_meeting(&base, "Untracked meeting").expect("create meeting");
+        let meeting = create_meeting(&base, "Untracked meeting", MeetingType::AutoDetect).expect("create meeting");
 
         mark_meeting_failed(&base, meeting);
 
@@ -262,7 +263,7 @@ mod tests {
         // catch-and-mark-failed wiring itself (not just its pieces in
         // isolation) — without needing a real provider or an AppHandle.
         let base = temp_base("run-summarize-fails");
-        let meeting = create_meeting(&base, "Test meeting").expect("create meeting");
+        let meeting = create_meeting(&base, "Test meeting", MeetingType::AutoDetect).expect("create meeting");
         append_to_index(&base, &meeting).expect("append to index");
 
         let result = tauri::async_runtime::block_on(run_summarize_or_mark_failed(
