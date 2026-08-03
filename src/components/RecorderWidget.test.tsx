@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { RecorderWidget } from "./RecorderWidget";
 import type { MeetingMeta } from "@/lib/storage";
 import type { SummaryResult } from "@/lib/summary";
+import type { AppConfig } from "@/lib/config";
 
 vi.mock("@/lib/recording", () => ({
   startRecording: vi.fn(),
@@ -995,6 +996,119 @@ describe("RecorderWidget manual provider selection at summarize time", () => {
     await userEvent.click(screen.getByRole("button", { name: /generate summary/i }));
 
     expect(await screen.findByText(/discussed the roadmap/i)).toBeInTheDocument();
+  });
+});
+
+describe("RecorderWidget regenerate with other provider", () => {
+  // Distinct from "RecorderWidget manual provider selection at summarize
+  // time" above: that describes the picker shown before the first summary.
+  // This describes the Done-state action that re-runs summarization with
+  // the alternate provider once a summary already exists.
+  const bothProvidersConfig: AppConfig = {
+    claude_api_key: "sk-test",
+    ollama_endpoint: "http://localhost:11434",
+    ollama_model: null,
+    ollama_num_ctx: null,
+    summary_provider: null,
+    whisper_model: "base.en",
+  };
+
+  async function completeAFlowWithConfig(config: AppConfig) {
+    const { getConfig } = await import("@/lib/config");
+    vi.mocked(getConfig).mockResolvedValue(config);
+    const { onTranscriptionComplete } = await import("@/lib/transcription");
+    let fire: ((meeting: MeetingMeta) => void) | undefined;
+    vi.mocked(onTranscriptionComplete).mockImplementation(async (callback) => {
+      fire = callback;
+      return () => {};
+    });
+
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+    await vi.waitFor(() => expect(fire).toBeDefined());
+    await act(async () => {
+      fire!({ ...fakeMeeting, status: "Summarizing" });
+    });
+
+    // With two providers configured, summarization is deferred behind the
+    // picker (see the describe block above) — confirm with the default
+    // selection (Claude, the first configured provider) so the widget
+    // actually reaches the done state with a summary on screen.
+    if (config.claude_api_key && config.ollama_endpoint) {
+      await userEvent.click(await screen.findByRole("button", { name: /generate summary/i }));
+    }
+  }
+
+  it("does not render a regenerate button when only one provider was configured", async () => {
+    await completeAFlowWithConfig({
+      claude_api_key: "sk-test",
+      ollama_endpoint: null,
+      ollama_model: null,
+      ollama_num_ctx: null,
+      summary_provider: null,
+      whisper_model: "base.en",
+    });
+
+    expect(await screen.findByText(/discussed the roadmap/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /regenerate with/i })).not.toBeInTheDocument();
+  });
+
+  it("shows a regenerate button offering the other provider when two were configured", async () => {
+    await completeAFlowWithConfig(bothProvidersConfig);
+
+    // The picker's default selection is Claude (the first configured
+    // provider), so the regenerate button should offer Ollama.
+    expect(await screen.findByRole("button", { name: /regenerate with ollama/i })).toBeInTheDocument();
+  });
+
+  it("calls summarizeMeeting with the alternate provider and updates the summary and action items", async () => {
+    const { summarizeMeeting } = await import("@/lib/summary");
+    await completeAFlowWithConfig(bothProvidersConfig);
+
+    vi.mocked(summarizeMeeting).mockResolvedValue({
+      meeting_type: "Team sync",
+      attendees: [],
+      referenced_people: [],
+      summary: "Regenerated with Ollama.",
+      topics: [],
+      decisions: [],
+      action_items: [{ text: "Follow up with design", owner: "Bob" }],
+      open_questions: [],
+    });
+
+    await userEvent.click(await screen.findByRole("button", { name: /regenerate with ollama/i }));
+
+    await vi.waitFor(() =>
+      expect(summarizeMeeting).toHaveBeenLastCalledWith(fakeMeeting.id, "Ollama")
+    );
+    expect(await screen.findByText(/regenerated with ollama/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("tab", { name: /action items/i }));
+    expect(await screen.findByText(/follow up with design/i)).toBeInTheDocument();
+  });
+
+  it("flips the button label to offer the other provider again after a successful regenerate", async () => {
+    const { summarizeMeeting } = await import("@/lib/summary");
+    await completeAFlowWithConfig(bothProvidersConfig);
+
+    await userEvent.click(await screen.findByRole("button", { name: /regenerate with ollama/i }));
+
+    await vi.waitFor(() =>
+      expect(summarizeMeeting).toHaveBeenLastCalledWith(fakeMeeting.id, "Ollama")
+    );
+    expect(await screen.findByRole("button", { name: /regenerate with claude/i })).toBeInTheDocument();
+  });
+
+  it("disables the button and shows a regenerating label while the call is in flight", async () => {
+    const { summarizeMeeting } = await import("@/lib/summary");
+    await completeAFlowWithConfig(bothProvidersConfig);
+    vi.mocked(summarizeMeeting).mockImplementation(() => new Promise(() => {}));
+
+    await userEvent.click(await screen.findByRole("button", { name: /regenerate with ollama/i }));
+
+    const button = await screen.findByRole("button", { name: /regenerating/i });
+    expect(button).toBeDisabled();
   });
 });
 

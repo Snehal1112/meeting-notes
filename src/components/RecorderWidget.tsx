@@ -55,6 +55,9 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
   // than one provider configured; they are not persisted anywhere.
   const [availableProviders, setAvailableProviders] = useState<ProviderKind[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<ProviderKind | null>(null);
+  // Drives only the Done-state "Regenerate with [other provider]" button's
+  // disabled/label state while a regenerate run is in flight.
+  const [isRegenerating, setIsRegenerating] = useState(false);
   const currentMeetingRef = useRef<MeetingMeta | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Wall-clock start time, so the elapsed timer cannot drift when ticks are throttled.
@@ -269,6 +272,48 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
     const meeting = currentMeetingRef.current;
     if (!meeting || !selectedProvider) return;
     void runSummarization(meeting.id, selectedProvider);
+  };
+
+  // The provider not currently backing the summary on screen, among those
+  // that were configured for this run. availableProviders is only populated
+  // (and left populated) when exactly two providers were configured at
+  // transcription-finish time, so this is null whenever there is no
+  // alternate provider to regenerate with.
+  //
+  // Guarded on selectedProvider !== null: it is only ever set when two
+  // providers were configured (see the processing effect and
+  // handleRegenerate below); when just one provider is configured,
+  // selectedProvider stays null while availableProviders still holds that
+  // one entry. Without this guard, `p !== null` is true for that sole
+  // provider, so .find would wrongly return it as "the other" provider —
+  // offering to regenerate with the only provider that was ever used.
+  const otherProvider = (): ProviderKind | null => {
+    if (selectedProvider === null) return null;
+    const other = availableProviders.find((p) => p !== selectedProvider);
+    return other ?? null;
+  };
+
+  // Re-runs summarization for the same meeting with the alternate provider,
+  // so the user can compare output. Reuses runSummarization rather than
+  // duplicating its summarize/setSummaryResult/setActionItems/error-handling
+  // body. runSummarization swallows its own errors (setSummaryError, never
+  // rethrows), so there is nothing for a try/catch here to catch from that
+  // call — isRegenerating only tracks the in-flight state for the button.
+  const handleRegenerate = async () => {
+    const target = otherProvider();
+    const meeting = currentMeetingRef.current;
+    if (!target || !meeting) return;
+    setSummaryError(null);
+    setIsRegenerating(true);
+    try {
+      await runSummarization(meeting.id, target);
+    } finally {
+      setIsRegenerating(false);
+    }
+    // Flip regardless of success or failure: summaryError already
+    // communicates a failed attempt, and always advancing the label lets the
+    // user immediately try the other provider again.
+    setSelectedProvider(target);
   };
 
   const handleStart = async () => {
@@ -542,6 +587,11 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
         <Button size="sm" onClick={() => setState("idle")}>
           Save &amp; Close
         </Button>
+        {otherProvider() && (
+          <Button variant="ghost" size="sm" onClick={handleRegenerate} disabled={isRegenerating}>
+            {isRegenerating ? "Regenerating…" : `Regenerate with ${otherProvider()}`}
+          </Button>
+        )}
       </div>
     </div>
   );
