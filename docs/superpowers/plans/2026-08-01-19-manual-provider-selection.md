@@ -1,6 +1,6 @@
 # Manual LLM Provider Selection Implementation Plan
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking. Depends on plan 18 (structured SummaryResult) being complete.
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking. Depends on `SummaryProvider`/`SummaryResult`/`Config`/`build_provider` existing — originally written against plan 18, which was superseded by plan 13 before either shipped; plan 13 provides the same prerequisites in its own shape. Task 1's code samples below predate plan 13 (they reference `templates`, `MeetingMeta`-typed `summarize_meeting`, and a 2-arg `OllamaProvider::new`) — the actual implementation (commit `41db718`) instead threads `provider_override` through the real `summarize_meeting(app, meeting_id, provider_override)` signature and 3-arg `OllamaProvider::new`, matching plan 13.
 
 **Goal:** Let the user choose Claude vs. Ollama before summarization starts (instead of it being silently auto-selected by config precedence), and let them regenerate the summary with the other provider from the Done state to compare output.
 
@@ -10,13 +10,20 @@
 
 ---
 
-### Task 1: provider_override parameter on summarize_meeting
+### Task 1: provider_override parameter on summarize_meeting — DONE (commit `41db718`)
+
+> Implemented directly against plan 13's shipped architecture rather than
+> the code samples below (written against superseded plan 18). See
+> `build_provider_for_kind` in `crates/meeting-notes-summary/src/lib.rs`
+> and the `provider_override` parameter on `summarize_meeting` in
+> `src-tauri/src/commands/summary_commands.rs`. Tests in
+> `crates/meeting-notes-summary/src/selection_tests.rs`.
 
 **Files:**
 - Modify: `crates/meeting-notes-summary/src/lib.rs`
 - Modify: `src-tauri/src/commands/summary_commands.rs`
 
-- [ ] **Step 1: Add a build_provider_for_kind function that skips auto-selection**
+- [x] **Step 1: Add a build_provider_for_kind function that skips auto-selection**
 
 ```rust
 // crates/meeting-notes-summary/src/lib.rs (additions)
@@ -39,7 +46,7 @@ pub fn build_provider_for_kind(
 
 Also derive `Serialize, Deserialize` on `ProviderKind` (currently just `Debug, PartialEq, Eq, Clone, Copy` from plan 10) so it can cross the Tauri IPC boundary as a command argument.
 
-- [ ] **Step 2: Thread an optional override through summarize_meeting**
+- [x] **Step 2: Thread an optional override through summarize_meeting**
 
 ```rust
 // src-tauri/src/commands/summary_commands.rs (modify signature and provider selection)
@@ -69,15 +76,16 @@ pub async fn summarize_meeting(
 
 - [ ] **Step 3: Manual verification via devtools**
 
+Not yet done — deferred to Task 2/3's manual verification, which exercises
+this same command through the real picker and regenerate UI rather than a
+devtools console call.
+
 Run: `bun run tauri dev` with both a Claude API key and an Ollama endpoint configured, call `invoke("summarize_meeting", { meeting, providerOverride: "Ollama" })` from devtools console on an already-transcribed meeting.
 Expected: summary is generated using Ollama specifically, regardless of which provider `select_provider_kind` would have auto-picked.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
-```bash
-git add crates/meeting-notes-summary/src src-tauri/src/commands/summary_commands.rs
-git commit -m "feat: add explicit provider override to summarize_meeting"
-```
+Committed as `41db718 feat: add explicit provider override to summarize_meeting (plan 19 task 1)`.
 
 ---
 
@@ -87,7 +95,9 @@ git commit -m "feat: add explicit provider override to summarize_meeting"
 - Modify: `src/lib/summary.ts`
 - Modify: `src/components/RecorderWidget.tsx`
 
-- [ ] **Step 1: Update the TypeScript wrapper to accept an optional override**
+- [x] **Step 1: Update the TypeScript wrapper to accept an optional override — DONE (commit `41db718`)**
+
+Implemented against the real signature (`summarizeMeeting(meetingId: string, ...)`, matching plan 13 — not the `meeting: MeetingMeta` sample below, which predates plan 13):
 
 ```ts
 // src/lib/summary.ts (modify)
