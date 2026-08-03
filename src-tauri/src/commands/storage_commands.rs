@@ -4,10 +4,12 @@ use meeting_notes_storage::{
 };
 
 #[tauri::command]
-pub fn create_new_meeting(title: String) -> Result<MeetingMeta, String> {
+pub fn create_new_meeting(
+    title: String,
+    meeting_type: MeetingType,
+) -> Result<MeetingMeta, String> {
     let base = base_dir().ok_or("could not resolve data directory")?;
-    let meta =
-        create_meeting(&base, &title, MeetingType::AutoDetect).map_err(|e| e.to_string())?;
+    let meta = create_meeting(&base, &title, meeting_type).map_err(|e| e.to_string())?;
     append_to_index(&base, &meta).map_err(|e| e.to_string())?;
     Ok(meta)
 }

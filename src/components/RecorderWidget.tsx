@@ -2,7 +2,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { startRecording, stopRecording } from "@/lib/recording";
-import { createNewMeeting, getDataDir, updateMeetingStatus, type MeetingMeta } from "@/lib/storage";
+import {
+  createNewMeeting,
+  getDataDir,
+  updateMeetingStatus,
+  type MeetingMeta,
+  type MeetingType,
+} from "@/lib/storage";
+
+const MEETING_TYPES: { value: MeetingType; label: string }[] = [
+  { value: "AutoDetect", label: "Auto-detect" },
+  { value: "Standup", label: "Standup" },
+  { value: "Retrospective", label: "Retrospective" },
+  { value: "FeatureRequest", label: "Feature Request" },
+  { value: "Incident", label: "Incident" },
+];
 import { transcribeMeeting, readTranscriptText, onTranscriptionComplete } from "@/lib/transcription";
 import { getConfig, setSummaryProvider, type AppConfig } from "@/lib/config";
 import { summarizeMeeting, type SummaryResult } from "@/lib/summary";
@@ -23,6 +37,7 @@ interface RecorderWidgetProps {
 export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {}) {
   const [state, setState] = useState<WidgetState>("idle");
   const [title, setTitle] = useState("");
+  const [meetingType, setMeetingType] = useState<MeetingType>("AutoDetect");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [micOnlyWarning, setMicOnlyWarning] = useState(false);
   const [qualityWarning, setQualityWarning] = useState<string | null>(null);
@@ -207,7 +222,7 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
     setActionItems([]);
     setTranscriptText("");
     try {
-      const meeting = await createNewMeeting(title);
+      const meeting = await createNewMeeting(title, meetingType);
       currentMeetingRef.current = meeting;
       const outputPath = `${await meetingsDataDir()}/meetings/${meeting.id}/audio.wav`;
       const usedSystemAudio = await startRecording(outputPath);
@@ -302,6 +317,18 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
+        <select
+          aria-label="Meeting type"
+          className="w-full border rounded-md h-9 px-2 text-sm"
+          value={meetingType}
+          onChange={(e) => setMeetingType(e.target.value as MeetingType)}
+        >
+          {MEETING_TYPES.map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.label}
+            </option>
+          ))}
+        </select>
         <ProviderPicker config={config} onChange={handleProviderChange} />
         <Button onClick={handleStart} disabled={busy}>
           Start Recording
