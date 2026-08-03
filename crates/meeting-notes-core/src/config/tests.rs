@@ -39,6 +39,7 @@ fn env_takes_precedence_over_file() {
         ollama_endpoint: Some("http://file-endpoint".into()),
         ollama_model: None,
         ollama_num_ctx: None,
+        summary_provider: None,
         whisper_model: Some("base.en".into()),
     };
     unsafe { std::env::set_var("MEETING_NOTES_CLAUDE_API_KEY", "from-env") };

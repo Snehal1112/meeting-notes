@@ -18,6 +18,11 @@ pub struct Config {
     /// own default when unset.
     pub ollama_model: Option<String>,
     pub ollama_num_ctx: Option<u32>,
+    /// Which provider to summarize with, "ollama" or "claude". None means
+    /// fall back to precedence. Stored as a string so an unrecognised value
+    /// from a hand-edited config file degrades to the fallback instead of
+    /// failing to parse the whole file.
+    pub summary_provider: Option<String>,
     pub whisper_model: Option<String>,
 }
 
@@ -32,6 +37,7 @@ impl Config {
             ollama_num_ctx: std::env::var("MEETING_NOTES_OLLAMA_NUM_CTX")
                 .ok()
                 .and_then(|v| v.parse().ok()),
+            summary_provider: std::env::var("MEETING_NOTES_SUMMARY_PROVIDER").ok(),
             whisper_model: std::env::var("MEETING_NOTES_WHISPER_MODEL").ok(),
         }
     }
@@ -42,6 +48,7 @@ impl Config {
         self.ollama_endpoint = self.ollama_endpoint.or(other.ollama_endpoint);
         self.ollama_model = self.ollama_model.or(other.ollama_model);
         self.ollama_num_ctx = self.ollama_num_ctx.or(other.ollama_num_ctx);
+        self.summary_provider = self.summary_provider.or(other.summary_provider);
         self.whisper_model = self.whisper_model.or(other.whisper_model);
         self
     }

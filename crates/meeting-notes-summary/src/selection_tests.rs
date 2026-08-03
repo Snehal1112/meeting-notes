@@ -1,6 +1,17 @@
 use super::*;
 use meeting_notes_core::config::Config;
 
+fn both_configured() -> Config {
+    Config {
+        claude_api_key: Some("sk-test".into()),
+        ollama_endpoint: Some("http://localhost:11434".into()),
+        ollama_model: None,
+        ollama_num_ctx: None,
+        summary_provider: None,
+        whisper_model: None,
+    }
+}
+
 #[test]
 fn selects_ollama_when_both_configured() {
     let config = Config {
@@ -8,6 +19,7 @@ fn selects_ollama_when_both_configured() {
         ollama_endpoint: Some("http://localhost:11434".into()),
         ollama_model: None,
         ollama_num_ctx: None,
+        summary_provider: None,
         whisper_model: None,
     };
     assert_eq!(select_provider_kind(&config), Some(ProviderKind::Ollama));
@@ -20,6 +32,7 @@ fn selects_claude_when_only_claude_configured() {
         ollama_endpoint: None,
         ollama_model: None,
         ollama_num_ctx: None,
+        summary_provider: None,
         whisper_model: None,
     };
     assert_eq!(select_provider_kind(&config), Some(ProviderKind::Claude));
@@ -32,6 +45,7 @@ fn selects_ollama_when_only_ollama_configured() {
         ollama_endpoint: Some("http://localhost:11434".into()),
         ollama_model: None,
         ollama_num_ctx: None,
+        summary_provider: None,
         whisper_model: None,
     };
     assert_eq!(select_provider_kind(&config), Some(ProviderKind::Ollama));
@@ -44,6 +58,7 @@ fn selects_none_when_neither_configured() {
         ollama_endpoint: None,
         ollama_model: None,
         ollama_num_ctx: None,
+        summary_provider: None,
         whisper_model: None,
     };
     assert_eq!(select_provider_kind(&config), None);
@@ -56,6 +71,7 @@ fn build_provider_returns_none_when_neither_configured() {
         ollama_endpoint: None,
         ollama_model: None,
         ollama_num_ctx: None,
+        summary_provider: None,
         whisper_model: None,
     };
     assert!(build_provider(&config).is_none());
@@ -68,7 +84,55 @@ fn build_provider_returns_a_provider_when_configured() {
         ollama_endpoint: Some("http://localhost:11434".into()),
         ollama_model: None,
         ollama_num_ctx: None,
+        summary_provider: None,
         whisper_model: None,
     };
     assert!(build_provider(&config).is_some());
+}
+
+#[test]
+fn an_explicit_claude_choice_wins_over_the_default_ollama_precedence() {
+    let mut config = both_configured();
+    config.summary_provider = Some("claude".into());
+    assert_eq!(select_provider_kind(&config), Some(ProviderKind::Claude));
+}
+
+#[test]
+fn an_explicit_ollama_choice_is_honoured() {
+    let mut config = both_configured();
+    config.summary_provider = Some("ollama".into());
+    assert_eq!(select_provider_kind(&config), Some(ProviderKind::Ollama));
+}
+
+#[test]
+fn a_choice_naming_an_unconfigured_provider_falls_back() {
+    // The key was in the environment when the choice was made and has since
+    // been removed. Falling back beats failing on a stale choice.
+    let mut config = both_configured();
+    config.claude_api_key = None;
+    config.summary_provider = Some("claude".into());
+    assert_eq!(select_provider_kind(&config), Some(ProviderKind::Ollama));
+}
+
+#[test]
+fn an_unrecognised_choice_falls_back_to_the_default_precedence() {
+    let mut config = both_configured();
+    config.summary_provider = Some("gpt".into());
+    assert_eq!(select_provider_kind(&config), Some(ProviderKind::Ollama));
+}
+
+#[test]
+fn a_choice_is_matched_case_insensitively() {
+    let mut config = both_configured();
+    config.summary_provider = Some("Claude".into());
+    assert_eq!(select_provider_kind(&config), Some(ProviderKind::Claude));
+}
+
+#[test]
+fn an_explicit_choice_cannot_conjure_a_provider_when_none_is_configured() {
+    let config = Config {
+        summary_provider: Some("claude".into()),
+        ..Config::default()
+    };
+    assert_eq!(select_provider_kind(&config), None);
 }
