@@ -18,6 +18,7 @@ import { Waveform } from "@/components/Waveform";
 import { ActionItemsList, type ActionItem } from "@/components/ActionItemsList";
 import { ProviderPicker, type ProviderName } from "@/components/ProviderPicker";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Mic, MicOff, Square, AlertTriangle } from "lucide-react";
 
 export type WidgetState = "idle" | "recording" | "processing" | "done";
 // "choosing_provider" is a distinct sub-status from "summarizing": it's the
@@ -473,14 +474,21 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
     return (
       <div className="flex flex-col gap-3 h-full justify-center">
         {errorNotice}
-        <Input
-          placeholder="Meeting title (optional)"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
+        <div className="flex flex-col gap-1">
+          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+            New meeting
+          </span>
+          <Input
+            placeholder="Meeting title (optional)"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="border-none shadow-none px-0 py-0 h-auto text-lg font-medium placeholder:text-muted-foreground/50 focus-visible:ring-0 focus-visible:ring-offset-0"
+          />
+        </div>
         <MeetingTypePicker value={meetingType} onChange={setMeetingType} disabled={busy} />
         <ProviderPicker config={config} onChange={handleProviderChange} />
-        <Button onClick={handleStart} disabled={busy}>
+        <Button onClick={handleStart} disabled={busy} className="h-11 gap-2 mt-1">
+          <Mic className="h-4 w-4" />
           Start Recording
         </Button>
       </div>
@@ -488,18 +496,43 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
   }
 
   if (state === "recording") {
+    // recordingError is intentionally not rendered here: it is only ever set
+    // by handleStart's catch (which never transitions into this state) or
+    // handleStop's catch (which transitions to "idle", not "recording"), so
+    // it can never actually be non-null while state === "recording" -- it
+    // stays in the Idle branch, where it's real. micOnlyWarning, by
+    // contrast, genuinely can be true here (handleStart sets it right before
+    // this transition), so it still needs to be surfaced -- just compactly,
+    // since this pill is a small fixed-size window (224x56).
     return (
-      <div className="flex flex-col gap-3 h-full justify-center items-center">
-        {errorNotice}
+      <div
+        data-tauri-drag-region
+        className="h-full w-full flex items-center justify-center gap-2.5 bg-background border rounded-full pl-3.5 pr-2 py-2 shadow-sm"
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-destructive animate-pulse flex-shrink-0" />
         {micOnlyWarning && (
-          <span className="text-xs text-amber-600">
-            System audio unavailable — recording mic only
+          <span
+            role="img"
+            aria-label="System audio unavailable — recording mic only"
+            title="System audio unavailable — recording mic only"
+            className="flex-shrink-0 text-amber-600"
+          >
+            <MicOff className="h-3 w-3" aria-hidden="true" />
           </span>
         )}
-        <Waveform active={state === "recording"} />
-        <div className="text-2xl font-mono">{formattedTime}</div>
-        <Button variant="destructive" onClick={handleStop} disabled={busy}>
-          Stop Recording
+        <span className="text-xs font-mono text-foreground tabular-nums flex-shrink-0">
+          {formattedTime}
+        </span>
+        <Waveform active={state === "recording"} compact />
+        <Button
+          variant="destructive"
+          size="icon"
+          onClick={handleStop}
+          disabled={busy}
+          aria-label="Stop Recording"
+          className="h-7 w-7 rounded-full flex-shrink-0 bg-destructive text-white hover:bg-destructive/90"
+        >
+          <Square className="h-2.5 w-2.5 fill-current" />
         </Button>
       </div>
     );
@@ -507,17 +540,41 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
 
   if (state === "processing") {
     return (
-      <div className="flex flex-col gap-2 h-full justify-center items-center text-sm text-muted-foreground">
-        {qualityWarning && <span className="text-xs text-amber-600">{qualityWarning}</span>}
+      <div
+        data-tauri-drag-region
+        className="h-full w-full flex items-center justify-center gap-2 bg-background border rounded-full px-3 py-2 shadow-sm text-sm text-muted-foreground"
+      >
+        {qualityWarning && (
+          // Fixed-size pill (260x56), so an arbitrary-length backend string
+          // gets a compact icon + tooltip/accessible-label instead of a full
+          // line, the same treatment as micOnlyWarning in the Recording pill.
+          <span
+            role="img"
+            aria-label={qualityWarning}
+            title={qualityWarning}
+            className="flex-shrink-0 text-amber-600"
+          >
+            <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+          </span>
+        )}
         {transcriptionError ? (
           // The audio is always preserved on disk, so this is recoverable:
           // offer the retry rather than sending the user back to idle. The
           // underlying error sits alongside it so a missing binary or bad
           // model name is diagnosable, not just "it failed".
-          <div role="alert" className="flex flex-col items-center gap-2">
-            <span className="text-xs text-red-600">Transcription failed</span>
-            <span className="text-xs text-muted-foreground">{transcriptionError}</span>
-            <Button size="sm" variant="outline" onClick={() => runTranscription()}>
+          <div role="alert" className="flex items-center gap-1.5 min-w-0">
+            <div className="flex flex-col min-w-0 leading-tight">
+              <span className="text-[10px] font-medium text-red-600">Transcription failed</span>
+              <span className="text-[9px] text-muted-foreground truncate max-w-[130px]">
+                {transcriptionError}
+              </span>
+            </div>
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => runTranscription()}
+              className="flex-shrink-0"
+            >
               Retry
             </Button>
           </div>
@@ -527,13 +584,12 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
           // summarize_meeting call is deliberately deferred until Generate
           // Summary is clicked, so switching the selection here always
           // changes which provider actually runs.
-          <div className="flex flex-col items-center gap-2">
-            <span>Choose a provider for this summary</span>
+          <div className="flex items-center gap-1.5">
             <Select
               value={selectedProvider ?? undefined}
               onValueChange={(next) => setSelectedProvider(next as ProviderKind)}
             >
-              <SelectTrigger aria-label="Summary provider" className="w-36">
+              <SelectTrigger aria-label="Summary provider" className="h-6 text-xs w-[88px] flex-shrink-0">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -544,20 +600,28 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
                 ))}
               </SelectContent>
             </Select>
-            <Button size="sm" onClick={handleConfirmProvider} disabled={!selectedProvider}>
+            <Button
+              size="xs"
+              onClick={handleConfirmProvider}
+              disabled={!selectedProvider}
+              className="flex-shrink-0"
+            >
               Generate Summary
             </Button>
           </div>
         ) : (
-          <div className="flex flex-col items-center gap-1">
-            <span>
-              {processingStatus === "transcribing" ? "Transcribing…" : "Generating summary…"}
-            </span>
-            {processingStatus === "summarizing" && (
-              <span className="text-xs">
-                Long meetings are summarized in several passes — this may take a few minutes.
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="h-3.5 w-3.5 rounded-full border-2 border-primary/20 border-t-primary animate-spin flex-shrink-0" />
+            <div className="flex flex-col min-w-0 leading-tight">
+              <span className="text-xs truncate">
+                {processingStatus === "transcribing" ? "Transcribing…" : "Generating summary…"}
               </span>
-            )}
+              {processingStatus === "summarizing" && (
+                <span className="text-[9px] truncate">
+                  Long meetings are summarized in several passes — this may take a few minutes.
+                </span>
+              )}
+            </div>
           </div>
         )}
       </div>

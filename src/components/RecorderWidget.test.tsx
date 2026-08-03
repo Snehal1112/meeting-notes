@@ -143,7 +143,11 @@ describe("RecorderWidget error handling", () => {
     render(<RecorderWidget />);
     fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
     fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
-    expect(await screen.findByText(/audio level was very low/i)).toBeInTheDocument();
+    // The Processing pill is a small fixed-size window, so the warning is
+    // surfaced as a compact icon with an accessible label/tooltip rather than
+    // a full line of text -- see the qualityWarning rendering in
+    // RecorderWidget's processing branch.
+    expect(await screen.findByRole("img", { name: /audio level was very low/i })).toBeInTheDocument();
   });
 
   it("stays on idle and shows an error when createNewMeeting rejects", async () => {
