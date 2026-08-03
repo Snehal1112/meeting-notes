@@ -83,12 +83,29 @@ pub fn save_to_file(config: &Config) -> std::io::Result<()> {
     let Some(path) = config_file_path() else {
         return Err(std::io::Error::other("no config dir"));
     };
+    save_to_path(config, &path)
+}
+
+/// Does the actual write. Split out from `save_to_file` so tests can point it
+/// at a temp file instead of the developer's real config path.
+fn save_to_path(config: &Config, path: &std::path::Path) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let toml_str =
         toml::to_string_pretty(config).map_err(|e| std::io::Error::other(e.to_string()))?;
-    std::fs::write(path, toml_str)
+    std::fs::write(path, toml_str)?;
+
+    // The file holds an API key, so it must not be group/world readable.
+    // Unix-only: the project is Linux-only today, but this must not break a
+    // hypothetical non-Unix build.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

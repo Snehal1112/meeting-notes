@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { startRecording, stopRecording } from "@/lib/recording";
 import { createNewMeeting, getDataDir, updateMeetingStatus, type MeetingMeta } from "@/lib/storage";
 import { transcribeMeeting, readTranscriptText, onTranscriptionComplete } from "@/lib/transcription";
-import { getConfig, saveConfig, type AppConfig } from "@/lib/config";
+import { getConfig, setSummaryProvider, type AppConfig } from "@/lib/config";
 import { summarizeMeeting, type SummaryResult } from "@/lib/summary";
 import { Waveform } from "@/components/Waveform";
 import { ActionItemsList, type ActionItem } from "@/components/ActionItemsList";
@@ -179,15 +179,15 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
     };
   }, [state]);
 
-  // save_config overwrites the whole config file, so the current config is
-  // read back and only this one field replaced. Sending a partial object
-  // would erase the API key, endpoint and whisper model.
+  // Uses the narrow set_summary_provider command rather than saveConfig:
+  // config here can include values that only ever came from the environment
+  // (getConfig() returns the resolved config), and round-tripping those
+  // through saveConfig would write them into the plaintext config file.
   const handleProviderChange = async (provider: ProviderName) => {
     if (!config) return;
-    const updated = { ...config, summary_provider: provider };
-    setConfig(updated);
+    setConfig({ ...config, summary_provider: provider });
     try {
-      await saveConfig(updated);
+      await setSummaryProvider(provider);
     } catch (err) {
       console.error("Could not save the provider choice:", errorMessage(err));
     }

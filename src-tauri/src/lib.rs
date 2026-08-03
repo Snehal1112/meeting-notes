@@ -70,6 +70,7 @@ pub fn run() {
             commands::config_commands::get_config,
             commands::config_commands::save_config,
             commands::config_commands::config_needs_setup,
+            commands::config_commands::set_summary_provider,
             commands::recording_commands::start_recording,
             commands::recording_commands::stop_recording,
             commands::storage_commands::create_new_meeting,

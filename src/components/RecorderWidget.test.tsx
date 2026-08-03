@@ -27,6 +27,7 @@ vi.mock("@/lib/transcription", () => ({
 vi.mock("@/lib/config", () => ({
   getConfig: vi.fn(),
   saveConfig: vi.fn(),
+  setSummaryProvider: vi.fn(),
 }));
 
 vi.mock("@/lib/summary", () => ({
@@ -73,7 +74,7 @@ beforeEach(async () => {
     open_questions: [],
   });
 
-  const { getConfig, saveConfig } = await import("@/lib/config");
+  const { getConfig, saveConfig, setSummaryProvider } = await import("@/lib/config");
   vi.mocked(getConfig).mockReset().mockResolvedValue({
     claude_api_key: null,
     ollama_endpoint: null,
@@ -83,6 +84,7 @@ beforeEach(async () => {
     whisper_model: "base.en",
   });
   vi.mocked(saveConfig).mockReset().mockResolvedValue(undefined);
+  vi.mocked(setSummaryProvider).mockReset().mockResolvedValue(undefined);
 });
 
 describe("RecorderWidget idle state", () => {
@@ -835,7 +837,7 @@ describe("RecorderWidget structured notes", () => {
 
 describe("RecorderWidget provider picker", () => {
   it("persists a provider change without clearing the rest of the config", async () => {
-    const { getConfig, saveConfig } = await import("@/lib/config");
+    const { getConfig, saveConfig, setSummaryProvider } = await import("@/lib/config");
     vi.mocked(getConfig).mockResolvedValue({
       claude_api_key: "sk-test",
       ollama_endpoint: "http://localhost:11434",
@@ -848,18 +850,11 @@ describe("RecorderWidget provider picker", () => {
     render(<RecorderWidget />);
     fireEvent.click(await screen.findByRole("radio", { name: /claude/i }));
 
-    // save_config overwrites the whole file, so a partial write here would
-    // silently erase the api key, endpoint and whisper model.
-    await vi.waitFor(() =>
-      expect(saveConfig).toHaveBeenCalledWith({
-        claude_api_key: "sk-test",
-        ollama_endpoint: "http://localhost:11434",
-        ollama_model: "gemma4:e2b",
-        ollama_num_ctx: null,
-        summary_provider: "claude",
-        whisper_model: "small.en",
-      })
-    );
+    // Uses the narrow set_summary_provider command, not saveConfig: getConfig()
+    // returns environment values merged in, and round-tripping that whole
+    // object through saveConfig would write an env-only API key to disk.
+    await vi.waitFor(() => expect(setSummaryProvider).toHaveBeenCalledWith("claude"));
+    expect(saveConfig).not.toHaveBeenCalled();
   });
 });
 

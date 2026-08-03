@@ -104,3 +104,45 @@ fn loads_config_from_toml_string() {
     assert_eq!(config.claude_api_key, Some("sk-file-key".to_string()));
     assert_eq!(config.ollama_endpoint, None);
 }
+
+/// Pins the property `set_summary_provider` (the config_commands Tauri
+/// command) relies on: `load_from_file` reads only the file, never the
+/// environment. If this ever regressed to reading the resolved config, an
+/// env-only API key would get copied into the plaintext config file the next
+/// time the provider picker is clicked.
+#[test]
+fn load_from_file_does_not_pick_up_environment_values() {
+    let _guard = lock_env();
+    unsafe { std::env::set_var("MEETING_NOTES_CLAUDE_API_KEY", "sk-env-only") };
+    let loaded = load_from_file();
+    assert_ne!(loaded.claude_api_key, Some("sk-env-only".to_string()));
+    unsafe { std::env::remove_var("MEETING_NOTES_CLAUDE_API_KEY") };
+}
+
+#[test]
+fn save_to_path_writes_the_file_with_owner_only_permissions() {
+    let dir = std::env::temp_dir().join(format!(
+        "meeting-notes-config-test-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let path = dir.join("config.toml");
+    let config = Config {
+        claude_api_key: Some("sk-test".into()),
+        ..Config::default()
+    };
+
+    save_to_path(&config, &path).expect("save");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    std::fs::remove_dir_all(&dir).ok();
+}
