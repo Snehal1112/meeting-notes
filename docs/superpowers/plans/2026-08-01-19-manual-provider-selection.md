@@ -107,7 +107,7 @@ export const summarizeMeeting = (meeting: MeetingMeta, providerOverride?: Provid
   invoke<SummaryResult>("summarize_meeting", { meeting, providerOverride: providerOverride ?? null });
 ```
 
-- [ ] **Step 2: Determine available providers from config and show a picker**
+- [x] **Step 2: Determine available providers from config and show a picker — DONE (commit `95f8184`)**
 
 ```tsx
 // src/components/RecorderWidget.tsx (additions)
@@ -132,11 +132,13 @@ The state and detection logic above (`availableProviders`, `selectedProvider`) i
 
 Pass `selectedProvider ?? undefined` into `summarizeMeeting(meeting, ...)` — when only one (or zero) providers are configured, this behaves exactly as before (no picker shown, auto-selection or "not configured" state as already built in plan 10).
 
-- [ ] **Step 3: Manual verification**
+> **Deviation from the sample above (commit `95f8184`):** the code sample fires `summarizeMeeting` immediately on entering "summarizing", which cannot satisfy this same section's Step 3 requirement that changing the picker before completion changes the provider used — an immediate, uncancellable call can't be redirected after the fact. Resolved by gating: with 0 or 1 configured providers, behavior is unchanged (immediate call, no picker); with exactly 2, the picker plus a "Generate Summary" confirm button are shown and `summarizeMeeting` is only invoked on confirm, using the shadcn `Select` from `src/components/ui/select.tsx` (precedent: `MeetingTypePicker.tsx`), not a raw `<select>`.
 
-Run: `bun run tauri dev` with both providers configured, complete a recording, confirm the picker appears during "Generating summary…" and changing it before summarization completes uses the newly selected provider.
+- [x] **Step 3: Manual verification — partially done (commit `95f8184`)**
 
-- [ ] **Step 4: Commit**
+`bun run tauri dev` was not run (no display/audio/Tauri runtime in the implementing environment). Verified instead: `bun run build` (tsc strict + vite) clean; full `vitest` suite 83/83 passing, including 3 new tests exercising the gated picker (picker shown + no auto-call with 2 providers, confirm sends the switched selection, confirm still reaches the done state) and all 52 pre-existing `RecorderWidget.test.tsx` tests (no regressions). A live `bun run tauri dev` pass with both providers configured is still outstanding — do this before relying on the picker in real use.
+
+- [x] **Step 4: Commit — DONE (commit `95f8184`)**
 
 ```bash
 git add src/lib/summary.ts src/components/RecorderWidget.tsx
@@ -150,7 +152,7 @@ git commit -m "feat: show provider picker before summarization when multiple pro
 **Files:**
 - Modify: `src/components/RecorderWidget.tsx`
 
-- [ ] **Step 1: Add a regenerate handler that calls summarizeMeeting with the alternate provider**
+- [x] **Step 1: Add a regenerate handler that calls summarizeMeeting with the alternate provider — DONE (commit `acfcaf7`)**
 
 ```tsx
 // src/components/RecorderWidget.tsx (additions)
@@ -178,7 +180,7 @@ const handleRegenerate = async () => {
 };
 ```
 
-- [ ] **Step 2: Render the regenerate button in the Done state, only when a second provider is actually available**
+- [x] **Step 2: Render the regenerate button in the Done state, only when a second provider is actually available — DONE (commit `acfcaf7`)**
 
 ```tsx
 // src/components/RecorderWidget.tsx (inside the "done" state render, near Save & Close / New Recording)
@@ -189,12 +191,16 @@ const handleRegenerate = async () => {
 )}
 ```
 
-- [ ] **Step 3: Manual verification**
+> **Deviation from the samples above (commit `acfcaf7`):** `summarizeMeeting(currentMeetingRef.current, target)` is wrong twice over — it passes the whole `MeetingMeta` instead of `.id`, and (more importantly) hand-rolling `setSummaryResult` without also updating `actionItems` would silently break the checklist on regenerate, contradicting Step 3's own "summary and action items update in place" expectation below. The actual `handleRegenerate` instead calls the `runSummarization(meetingId, provider?)` helper added in Task 2, which already does the summarize call, `setSummaryResult`, `setActionItems`, and error handling — no second copy of that logic exists. `setSelectedProvider(target)` runs unconditionally after the call (not only on success), so a failed regenerate still lets the user immediately retry the other provider. Also: `otherProvider()` needed an explicit `selectedProvider === null` guard — without it, the 1-provider-configured case (where `selectedProvider` is never set) would satisfy `p !== selectedProvider` and wrongly offer to "regenerate" into the same lone provider. Caught by a test before commit.
+
+- [x] **Step 3: Manual verification — partially done (commit `acfcaf7`)**
+
+`bun run tauri dev` was not run (no display/audio/Tauri runtime in the implementing environment). Verified instead: `bun run build` clean; full `vitest` suite 88/88 passing (6 new tests covering button visibility with 1 vs. 2 providers configured, the null-`selectedProvider` guard, regenerate updating both summary and action items, and label/target flipping after a successful regenerate). Not covered by tests: the `summary.md`/`action_items.json` on-disk overwrite behavior (spans the Rust backend, unchanged by this task) and the failure-path retry behavior. A live `bun run tauri dev` pass with both providers configured is still outstanding.
 
 Run: `bun run tauri dev` with both providers configured, complete a recording, click "Regenerate with Ollama" (or Claude, whichever wasn't used first).
 Expected: summary and action items update in place to the alternate provider's output; the button label flips to offer the other provider next; both `summary.md` and `action_items.json` on disk reflect the most recent regeneration (this overwrite behavior — no history of prior generations kept — matches the MVP's "no meeting list/history" scope; note this to the user if they later want generation history preserved).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit — DONE (commit `acfcaf7`)**
 
 ```bash
 git add src/components/RecorderWidget.tsx
