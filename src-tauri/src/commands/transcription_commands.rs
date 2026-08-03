@@ -97,6 +97,7 @@ fn mark_meeting_failed(base: &Path, mut meeting: MeetingMeta) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use meeting_notes_core::meeting::MeetingType;
     use meeting_notes_storage::{append_to_index, create_meeting};
     use std::path::PathBuf;
 
@@ -115,7 +116,7 @@ mod tests {
     #[test]
     fn read_transcript_for_meeting_returns_the_saved_transcript_text() {
         let base = temp_base("reads-transcript");
-        let meeting = create_meeting(&base, "Test meeting").expect("create meeting");
+        let meeting = create_meeting(&base, "Test meeting", MeetingType::AutoDetect).expect("create meeting");
         append_to_index(&base, &meeting).expect("append to index");
         std::fs::write(
             meeting.dir_path(&base).join("transcript.txt"),
@@ -132,7 +133,7 @@ mod tests {
     #[test]
     fn read_transcript_for_meeting_errors_when_the_meeting_is_not_in_the_index() {
         let base = temp_base("transcript-missing-meeting");
-        let meeting = create_meeting(&base, "Test meeting").expect("create meeting");
+        let meeting = create_meeting(&base, "Test meeting", MeetingType::AutoDetect).expect("create meeting");
         append_to_index(&base, &meeting).expect("append to index");
 
         assert!(read_transcript_for_meeting(&base, "nonexistent-id").is_err());
@@ -146,7 +147,7 @@ mod tests {
         // That must surface as an error rather than an empty transcript,
         // which the UI would render as a blank but valid transcript tab.
         let base = temp_base("transcript-missing-file");
-        let meeting = create_meeting(&base, "Test meeting").expect("create meeting");
+        let meeting = create_meeting(&base, "Test meeting", MeetingType::AutoDetect).expect("create meeting");
         append_to_index(&base, &meeting).expect("append to index");
 
         assert!(read_transcript_for_meeting(&base, &meeting.id).is_err());
@@ -157,7 +158,7 @@ mod tests {
     #[test]
     fn mark_meeting_failed_persists_failed_status_in_the_index() {
         let base = temp_base("marks-failed");
-        let meeting = create_meeting(&base, "Test meeting").expect("create meeting");
+        let meeting = create_meeting(&base, "Test meeting", MeetingType::AutoDetect).expect("create meeting");
         append_to_index(&base, &meeting).expect("append to index");
 
         mark_meeting_failed(&base, meeting.clone());
@@ -178,7 +179,7 @@ mod tests {
         // base_dir but an index write that never happened) — update_meeting
         // returns an error, which must be logged, not panicked on.
         let base = temp_base("missing-from-index");
-        let meeting = create_meeting(&base, "Untracked meeting").expect("create meeting");
+        let meeting = create_meeting(&base, "Untracked meeting", MeetingType::AutoDetect).expect("create meeting");
 
         mark_meeting_failed(&base, meeting);
 

@@ -1,4 +1,5 @@
 use crate::chunk::{merge_partials, split_transcript};
+use meeting_notes_core::meeting::MeetingType;
 use meeting_notes_core::summary::{SummaryProvider, SummaryResult};
 
 /// Shared framing describing the material every pass is reading.
@@ -7,16 +8,66 @@ and may contain transcription errors. Infer speakers from names spoken in contex
 term is likely mis-transcribed, give your best-guess interpretation. Use ONLY information \
 present in the transcript. Do not invent details.";
 
-/// Pass A: the body of the notes.
-const PASS_NOTES: &str = r#"You write detailed meeting notes from raw transcripts. Respond with ONLY a JSON object of this exact shape:
+/// The JSON contract every notes pass shares. Only the guidance below it
+/// varies by meeting type, so `parse_pass_fragment`'s required keys, the
+/// merge, and the Markdown rendering are identical for all five.
+const NOTES_SHAPE: &str = r#"Respond with ONLY a JSON object of this exact shape:
 {"meeting_type": string, "attendees": [string], "referenced_people": [string], "summary": string, "topics": [{"title": string, "points": [string]}], "decisions": [string]}
 No preamble, no markdown fences.
 
-- meeting_type: a short descriptor, e.g. "Team sync - Q3 OKR review".
+- meeting_type: a short descriptor of this specific meeting, e.g. "Team sync - Q3 OKR review".
 - attendees: people who appear to be ON the call. referenced_people: people mentioned but not clearly present.
 - summary: ONE substantial paragraph of 4-6 sentences covering what was discussed and what came out of it. Include concrete numbers.
-- topics: one entry per distinct subject, in the order discussed. "points" must be DETAILED and SPECIFIC: include names, numbers, dates, direct quotes, stated reasons and any pushback. Aim for 4-10 points per topic. Prefer concrete detail over generalisation.
-- decisions: things the group settled on. Empty array if none."#;
+- decisions: things the group settled on. Empty array if none.
+- topics: "points" must be DETAILED and SPECIFIC — names, numbers, dates, direct quotes, stated reasons and any pushback. Aim for 4-10 points per topic. Prefer concrete detail over generalisation."#;
+
+/// Returns the notes-pass prompt for `meeting_type`.
+///
+/// Only this pass varies by type. Actions and open questions are asked for
+/// identically whatever the meeting was — narrowing those two prompts is
+/// what stops small models returning empty arrays for them, and that has
+/// nothing to do with the kind of meeting.
+pub fn notes_pass_for(meeting_type: MeetingType) -> String {
+    let guidance = match meeting_type {
+        MeetingType::Standup => STANDUP_GUIDANCE,
+        MeetingType::Retrospective => RETROSPECTIVE_GUIDANCE,
+        MeetingType::FeatureRequest => FEATURE_REQUEST_GUIDANCE,
+        MeetingType::Incident => INCIDENT_GUIDANCE,
+        MeetingType::AutoDetect => GENERIC_GUIDANCE,
+    };
+    format!("{guidance}\n\n{NOTES_SHAPE}")
+}
+
+/// The user did not commit to a kind of meeting, so the model infers the
+/// structure from the content. This is the behaviour every meeting had
+/// before meeting types existed.
+const GENERIC_GUIDANCE: &str = "You write detailed meeting notes from raw transcripts. \
+Use one topic per distinct subject, in the order discussed.";
+
+const STANDUP_GUIDANCE: &str = "You write notes for a standup. Use ONE topic per person who \
+gave an update, titled with their name, and put what they completed, what they are working on \
+next, and anything blocking them in that person's points. Add a final topic for anything the \
+group discussed outside the individual updates, only if there was any. Record a blocker even \
+when nobody offered a fix — an unresolved blocker is the most useful thing in these notes.";
+
+const RETROSPECTIVE_GUIDANCE: &str = "You write notes for a retrospective. Use topics titled \
+exactly \"What went well\", \"What did not go well\", and \"Ideas and experiments\", in that \
+order, and drop any of the three the team did not actually discuss. Attribute points to the \
+person who raised them where the transcript makes that clear, and keep disagreement visible \
+rather than smoothing it into consensus.";
+
+const FEATURE_REQUEST_GUIDANCE: &str = "You write notes for a feature request discussion. Use \
+topics titled \"Problem\", \"Proposed solution\", \"Requirements\", \"Concerns and risks\", and \
+\"Alternatives considered\", in that order, dropping any the group did not cover. Put every \
+stated requirement as its own point, including the ones raised in passing, and record who \
+asked for it. Keep rejected alternatives and the reason each was rejected.";
+
+const INCIDENT_GUIDANCE: &str = "You write notes for an incident review. Use topics titled \
+\"Timeline\", \"Impact\", \"Root cause\", \"Remediation\", and \"Prevention\", in that order, \
+dropping any the group did not cover. Timeline points must carry whatever times, dates and \
+durations were said aloud. Impact points must carry the numbers stated — users affected, \
+duration, error rates. If the root cause was not established, say so plainly instead of \
+presenting a hypothesis as the cause.";
 
 /// Pass B: action items, asked for on their own because a combined prompt
 /// returns an empty array for them on smaller models.
@@ -39,19 +90,10 @@ No preamble, no markdown fences."#;
 /// `#[serde(default)]` so serde alone cannot tell "the model answered with an
 /// empty section" from "the model answered a different question entirely" —
 /// checking for the owning key(s) is what catches the latter.
-struct Pass {
-    prompt: &'static str,
+struct Pass<'a> {
+    prompt: &'a str,
     required_keys: &'static [&'static str],
 }
-
-const PASSES: [Pass; 3] = [
-    // Pass A owns several fields; requiring topics and summary is enough to
-    // catch a response shaped for a different prompt without demanding every
-    // field (e.g. decisions is legitimately often empty).
-    Pass { prompt: PASS_NOTES, required_keys: &["topics", "summary"] },
-    Pass { prompt: PASS_ACTIONS, required_keys: &["action_items"] },
-    Pass { prompt: PASS_QUESTIONS, required_keys: &["open_questions"] },
-];
 
 /// Generates the full notes for `transcript`.
 ///
@@ -60,10 +102,25 @@ const PASSES: [Pass; 3] = [
 /// sections, while narrow prompts recover them. A transcript longer than the
 /// provider's budget is chunked, every pass runs per chunk, and the
 /// fragments are merged.
+///
+/// `meeting_type` selects the notes pass only. Every variant asks for the
+/// same JSON shape, so it steers what the model looks for without changing
+/// the contract the parser, merge and renderer depend on.
 pub async fn generate_notes(
     provider: &(dyn SummaryProvider + Send + Sync),
+    meeting_type: MeetingType,
     transcript: &str,
 ) -> Result<SummaryResult, String> {
+    let notes_prompt = notes_pass_for(meeting_type);
+    let passes = [
+        // The notes pass owns several fields; requiring topics and summary is
+        // enough to catch a response shaped for a different prompt without
+        // demanding every field (e.g. decisions is legitimately often empty).
+        Pass { prompt: notes_prompt.as_str(), required_keys: &["topics", "summary"] },
+        Pass { prompt: PASS_ACTIONS, required_keys: &["action_items"] },
+        Pass { prompt: PASS_QUESTIONS, required_keys: &["open_questions"] },
+    ];
+
     let chunks = split_transcript(transcript, provider.input_budget_words());
     if chunks.is_empty() {
         return Err("transcript is empty, nothing to summarize".to_string());
@@ -71,7 +128,7 @@ pub async fn generate_notes(
 
     let mut fragments = Vec::new();
     for chunk in &chunks {
-        for pass in &PASSES {
+        for pass in &passes {
             let prompt = format!("{}\n\n{TRANSCRIPT_CAVEAT}\n\nTranscript:\n{chunk}", pass.prompt);
             let raw = provider.complete_json(&prompt).await?;
             fragments.push(parse_pass_fragment(&raw, pass.required_keys)?);

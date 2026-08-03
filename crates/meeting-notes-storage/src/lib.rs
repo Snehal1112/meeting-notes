@@ -1,4 +1,4 @@
-use meeting_notes_core::meeting::{MeetingMeta, MeetingStatus};
+use meeting_notes_core::meeting::{MeetingMeta, MeetingStatus, MeetingType};
 use std::path::{Path, PathBuf};
 
 /// Resolves the app's data directory (e.g. `~/.local/share/meeting-notes` on Linux).
@@ -25,7 +25,11 @@ fn slugify(title: &str) -> String {
     slug.trim_matches('-').chars().take(30).collect()
 }
 
-pub fn create_meeting(base: &Path, title: &str) -> std::io::Result<MeetingMeta> {
+pub fn create_meeting(
+    base: &Path,
+    title: &str,
+    meeting_type: MeetingType,
+) -> std::io::Result<MeetingMeta> {
     let now = chrono::Utc::now();
     let ts = now.format("%Y-%m-%d_%H%M%S").to_string();
     let slug = slugify(title);
@@ -38,6 +42,7 @@ pub fn create_meeting(base: &Path, title: &str) -> std::io::Result<MeetingMeta> 
         duration_seconds: None,
         status: MeetingStatus::Recording,
         used_system_audio: false,
+        meeting_type,
     };
 
     std::fs::create_dir_all(meta.dir_path(base))?;

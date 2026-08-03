@@ -2,7 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { startRecording, stopRecording } from "@/lib/recording";
-import { createNewMeeting, getDataDir, updateMeetingStatus, type MeetingMeta } from "@/lib/storage";
+import { MeetingTypePicker } from "@/components/MeetingTypePicker";
+import {
+  createNewMeeting,
+  getDataDir,
+  updateMeetingStatus,
+  type MeetingMeta,
+  type MeetingType,
+} from "@/lib/storage";
 import { transcribeMeeting, readTranscriptText, onTranscriptionComplete } from "@/lib/transcription";
 import { getConfig, setSummaryProvider, type AppConfig } from "@/lib/config";
 import { summarizeMeeting, type SummaryResult } from "@/lib/summary";
@@ -23,6 +30,7 @@ interface RecorderWidgetProps {
 export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {}) {
   const [state, setState] = useState<WidgetState>("idle");
   const [title, setTitle] = useState("");
+  const [meetingType, setMeetingType] = useState<MeetingType>("AutoDetect");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [micOnlyWarning, setMicOnlyWarning] = useState(false);
   const [qualityWarning, setQualityWarning] = useState<string | null>(null);
@@ -207,7 +215,7 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
     setActionItems([]);
     setTranscriptText("");
     try {
-      const meeting = await createNewMeeting(title);
+      const meeting = await createNewMeeting(title, meetingType);
       currentMeetingRef.current = meeting;
       const outputPath = `${await meetingsDataDir()}/meetings/${meeting.id}/audio.wav`;
       const usedSystemAudio = await startRecording(outputPath);
@@ -302,6 +310,7 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
+        <MeetingTypePicker value={meetingType} onChange={setMeetingType} disabled={busy} />
         <ProviderPicker config={config} onChange={handleProviderChange} />
         <Button onClick={handleStart} disabled={busy}>
           Start Recording

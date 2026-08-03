@@ -1,7 +1,16 @@
-use super::notes::{generate_notes, parse_pass_fragment};
+use super::notes::{generate_notes, notes_pass_for, parse_pass_fragment};
 use async_trait::async_trait;
+use meeting_notes_core::meeting::MeetingType;
 use meeting_notes_core::summary::SummaryProvider;
 use std::sync::Mutex;
+
+const ALL_TYPES: [MeetingType; 5] = [
+    MeetingType::Standup,
+    MeetingType::Retrospective,
+    MeetingType::FeatureRequest,
+    MeetingType::Incident,
+    MeetingType::AutoDetect,
+];
 
 /// Records every prompt it is given and replays canned responses in order.
 struct ScriptedProvider {
@@ -57,7 +66,7 @@ const PASS_C: &str = r#"{"open_questions":["Who covers chat?"]}"#;
 #[tokio::test]
 async fn combines_all_three_passes_into_one_result() {
     let provider = ScriptedProvider::new(vec![PASS_A, PASS_B, PASS_C], 1000);
-    let result = generate_notes(&provider, "a short transcript").await.expect("generate");
+    let result = generate_notes(&provider, MeetingType::AutoDetect, "a short transcript").await.expect("generate");
 
     assert_eq!(result.meeting_type, "Team sync");
     assert_eq!(result.topics.len(), 1);
@@ -69,14 +78,14 @@ async fn combines_all_three_passes_into_one_result() {
 #[tokio::test]
 async fn runs_exactly_three_passes_for_a_transcript_that_fits() {
     let provider = ScriptedProvider::new(vec![PASS_A, PASS_B, PASS_C], 1000);
-    generate_notes(&provider, "one two three").await.expect("generate");
+    generate_notes(&provider, MeetingType::AutoDetect, "one two three").await.expect("generate");
     assert_eq!(provider.prompts.lock().unwrap().len(), 3);
 }
 
 #[tokio::test]
 async fn every_pass_prompt_carries_the_transcript() {
     let provider = ScriptedProvider::new(vec![PASS_A, PASS_B, PASS_C], 1000);
-    generate_notes(&provider, "the distinctive transcript body").await.expect("generate");
+    generate_notes(&provider, MeetingType::AutoDetect, "the distinctive transcript body").await.expect("generate");
     for prompt in provider.prompts.lock().unwrap().iter() {
         assert!(
             prompt.contains("the distinctive transcript body"),
@@ -93,7 +102,7 @@ async fn chunks_a_long_transcript_and_runs_every_pass_per_chunk() {
         PASS_A, PASS_B, PASS_C, PASS_A, PASS_B, PASS_C, PASS_A, PASS_B, PASS_C,
     ];
     let provider = ScriptedProvider::new(responses, 2);
-    let result = generate_notes(&provider, "one two three four five six").await.expect("generate");
+    let result = generate_notes(&provider, MeetingType::AutoDetect, "one two three four five six").await.expect("generate");
 
     assert_eq!(provider.prompts.lock().unwrap().len(), 9);
     // The same canned topic came back for every chunk and must fold to one.
@@ -105,7 +114,7 @@ async fn chunks_a_long_transcript_and_runs_every_pass_per_chunk() {
 async fn fails_the_whole_run_when_any_pass_fails() {
     // Partial notes rendered in the standard format would look complete
     // while silently missing a section.
-    let result = generate_notes(&FailingProvider, "a transcript").await;
+    let result = generate_notes(&FailingProvider, MeetingType::AutoDetect, "a transcript").await;
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("endpoint down"));
 }
@@ -113,9 +122,89 @@ async fn fails_the_whole_run_when_any_pass_fails() {
 #[tokio::test]
 async fn rejects_an_empty_transcript_before_calling_the_provider() {
     let provider = ScriptedProvider::new(vec![], 1000);
-    let result = generate_notes(&provider, "   ").await;
+    let result = generate_notes(&provider, MeetingType::AutoDetect, "   ").await;
     assert!(result.is_err());
     assert!(provider.prompts.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn the_notes_pass_prompt_varies_by_meeting_type() {
+    let mut seen: Vec<String> = Vec::new();
+    for meeting_type in ALL_TYPES {
+        let provider = ScriptedProvider::new(vec![PASS_A, PASS_B, PASS_C], 1000);
+        generate_notes(&provider, meeting_type, "a transcript").await.expect("generate");
+        // The notes pass runs first, so prompt 0 is the one that varies.
+        seen.push(provider.prompts.lock().unwrap()[0].clone());
+    }
+    for (i, a) in seen.iter().enumerate() {
+        for b in seen.iter().skip(i + 1) {
+            assert_ne!(a, b, "two meeting types produced an identical notes prompt");
+        }
+    }
+}
+
+#[tokio::test]
+async fn the_action_and_question_passes_are_shared_across_meeting_types() {
+    // Only the notes pass is type-specific. Follow-ups and unresolved
+    // questions are asked for identically whatever the meeting was, and
+    // keeping them narrow is what stops small models returning empty arrays.
+    let mut baseline: Option<(String, String)> = None;
+    for meeting_type in ALL_TYPES {
+        let provider = ScriptedProvider::new(vec![PASS_A, PASS_B, PASS_C], 1000);
+        generate_notes(&provider, meeting_type, "a transcript").await.expect("generate");
+        let prompts = provider.prompts.lock().unwrap().clone();
+        let pair = (prompts[1].clone(), prompts[2].clone());
+        match &baseline {
+            None => baseline = Some(pair),
+            Some(expected) => assert_eq!(&pair, expected),
+        }
+    }
+}
+
+#[tokio::test]
+async fn every_meeting_type_accepts_the_same_response_shape() {
+    // The type steers what the model looks for, never the JSON contract —
+    // so one canned response set has to satisfy all five.
+    for meeting_type in ALL_TYPES {
+        let provider = ScriptedProvider::new(vec![PASS_A, PASS_B, PASS_C], 1000);
+        let result = generate_notes(&provider, meeting_type, "a transcript")
+            .await
+            .unwrap_or_else(|e| panic!("{meeting_type:?} rejected the standard shape: {e}"));
+        assert_eq!(result.topics.len(), 1);
+        assert_eq!(result.action_items.len(), 1);
+        assert_eq!(result.open_questions.len(), 1);
+    }
+}
+
+#[test]
+fn each_notes_pass_asks_for_what_its_meeting_type_is_about() {
+    let standup = notes_pass_for(MeetingType::Standup);
+    assert!(standup.contains("blocker"), "standup pass should ask about blockers");
+
+    let retro = notes_pass_for(MeetingType::Retrospective);
+    assert!(retro.contains("went well"), "retro pass should ask what went well");
+
+    let incident = notes_pass_for(MeetingType::Incident);
+    assert!(incident.contains("root cause"), "incident pass should ask for root cause");
+
+    let feature = notes_pass_for(MeetingType::FeatureRequest);
+    assert!(feature.contains("requirement"), "feature pass should ask for requirements");
+}
+
+#[test]
+fn every_notes_pass_requests_the_keys_the_parser_demands() {
+    // parse_pass_fragment rejects a notes response missing "topics" or
+    // "summary", so a prompt that forgets to ask for them fails at runtime
+    // against a real model while every scripted test still passes.
+    for meeting_type in ALL_TYPES {
+        let prompt = notes_pass_for(meeting_type);
+        for key in ["meeting_type", "attendees", "referenced_people", "summary", "topics", "decisions"] {
+            assert!(
+                prompt.contains(key),
+                "{meeting_type:?} notes pass never mentions \"{key}\""
+            );
+        }
+    }
 }
 
 #[test]

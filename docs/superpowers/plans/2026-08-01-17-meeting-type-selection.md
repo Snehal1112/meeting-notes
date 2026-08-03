@@ -17,7 +17,7 @@
 - Modify: `crates/meeting-notes-storage/src/lib.rs`
 - Modify: `crates/meeting-notes-storage/src/tests.rs`
 
-- [ ] **Step 1: Write failing test for MeetingType round-tripping through create_meeting**
+- [x] **Step 1: Write failing test for MeetingType round-tripping through create_meeting**
 
 ```rust
 // crates/meeting-notes-storage/src/tests.rs (additions)
@@ -31,12 +31,12 @@ fn create_meeting_accepts_a_meeting_type() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test -p meeting-notes-storage -- --nocapture`
 Expected: FAIL — `MeetingType` not defined, `create_meeting` doesn't accept a type param yet.
 
-- [ ] **Step 3: Define MeetingType and add it to MeetingMeta**
+- [x] **Step 3: Define MeetingType and add it to MeetingMeta**
 
 ```rust
 // crates/meeting-notes-core/src/meeting.rs (additions)
@@ -58,7 +58,7 @@ impl Default for MeetingType {
 
 Add `pub meeting_type: MeetingType,` as a field on `MeetingMeta`.
 
-- [ ] **Step 4: Update create_meeting to accept a MeetingType**
+- [x] **Step 4: Update create_meeting to accept a MeetingType**
 
 ```rust
 // crates/meeting-notes-storage/src/lib.rs (modify create_meeting signature)
@@ -75,12 +75,12 @@ pub fn create_meeting(
 
 Update every existing call site of `create_meeting` from earlier plans (plan 07's own tests, plan 07 Task 3's `create_new_meeting` Tauri command) to pass a `MeetingType` argument — default to `MeetingType::AutoDetect` where the caller doesn't yet have a more specific value.
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `cargo test -p meeting-notes-storage -- --nocapture`
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add crates/meeting-notes-core/src/meeting.rs crates/meeting-notes-storage/src
@@ -96,7 +96,7 @@ git commit -m "feat: add MeetingType to core and thread it through create_meetin
 - Modify: `src/lib/storage.ts`
 - Modify: `src/components/RecorderWidget.tsx`
 
-- [ ] **Step 1: Update the create_new_meeting Tauri command to accept a type**
+- [x] **Step 1: Update the create_new_meeting Tauri command to accept a type**
 
 ```rust
 // src-tauri/src/commands/storage_commands.rs (modify create_new_meeting)
@@ -111,7 +111,7 @@ pub fn create_new_meeting(title: String, meeting_type: MeetingType) -> Result<Me
 }
 ```
 
-- [ ] **Step 2: Update TypeScript types and wrapper**
+- [x] **Step 2: Update TypeScript types and wrapper**
 
 ```ts
 // src/lib/storage.ts (additions/modifications)
@@ -131,7 +131,7 @@ export const createNewMeeting = (title: string, meetingType: MeetingType) =>
   invoke<MeetingMeta>("create_new_meeting", { title, meetingType });
 ```
 
-- [ ] **Step 3: Add the type selector to the Idle state**
+- [x] **Step 3: Add the type selector to the Idle state**
 
 ```tsx
 // src/components/RecorderWidget.tsx (additions to idle state)
@@ -166,7 +166,7 @@ const meeting = await createNewMeeting(title, meetingType);
 
 Run: `bun run tauri dev`, pick each meeting type from the dropdown, start a recording, confirm `index.json` records the chosen `meeting_type` for that entry.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/commands/storage_commands.rs src/lib/storage.ts src/components/RecorderWidget.tsx
@@ -177,12 +177,36 @@ git commit -m "feat: add meeting type selector to idle state"
 
 ### Task 3: Type-aware prompt template selection in meeting-notes-summary
 
-**Files:**
-- Create: `crates/meeting-notes-summary/src/templates.rs`
-- Modify: `crates/meeting-notes-summary/src/lib.rs`
-- Create: `crates/meeting-notes-summary/src/templates_tests.rs`
+> **Implemented in reshaped form — see commit `1a9599f`.** This task was
+> written against the pre-plan-13 single-prompt design and does not fit the
+> shipped code. Three problems with the text below: its templates ask for
+> `{discussion_notes, action_items[].assignee}` while `SummaryResult` has
+> `topics[{title,points}]` and `owner` (so `parse_pass_fragment` would reject
+> every response at runtime); its single combined prompt is the design plan 13
+> measured and rejected, because a small model returns empty arrays for whole
+> sections when asked for everything at once; and `template_for` was never
+> wired into `generate_notes`, so it would ship dead code.
+>
+> What was built instead: `notes_pass_for(MeetingType) -> String` in
+> `notes.rs` swaps **only** the notes pass, while the action and question
+> passes stay shared and narrow. All five variants return the identical JSON
+> shape, so the parser, merge and Markdown renderer are untouched.
+> Retrospective's went-well/did-not-go-well ride in `topics`, which
+> `notes_markdown` already renders as `### <title>` + bullets. No
+> `templates.rs` or `PromptTemplate` enum: with one thing varying, the enum
+> would wrap a single `&'static str`.
+>
+> Verified against gemma4:e2b on a real transcript. Retrospective and incident
+> produced the exact topic titles requested. Standup and feature request could
+> not be structurally verified — the only real transcript available is a
+> marketing sync, so both correctly fell back to subject-based topics.
 
-- [ ] **Step 1: Write failing test for template selection**
+**Files:**
+- Modify: `crates/meeting-notes-summary/src/notes.rs` (was: create `templates.rs`)
+- Modify: `crates/meeting-notes-summary/src/notes_tests.rs` (was: create `templates_tests.rs`)
+- Modify: `src-tauri/src/commands/summary_commands.rs` (wiring the plan omitted)
+
+- [x] **Step 1: Write failing test for template selection**
 
 ```rust
 // crates/meeting-notes-summary/src/templates_tests.rs
@@ -205,12 +229,12 @@ fn retrospective_and_auto_detect_use_type_specific() {
 
 Register `#[cfg(test)] mod templates_tests;` and `pub mod templates;` in `crates/meeting-notes-summary/src/lib.rs`.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test -p meeting-notes-summary -- --nocapture`
 Expected: FAIL — `templates` module doesn't exist.
 
-- [ ] **Step 3: Implement template selection and the prompt text for each**
+- [x] **Step 3: Implement template selection and the prompt text for each**
 
 ```rust
 // crates/meeting-notes-summary/src/templates.rs
@@ -271,12 +295,12 @@ empty array if none are confidently identifiable. Assign an action item's assign
 when clearly attributed in the transcript.";
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cargo test -p meeting-notes-summary -- --nocapture`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/meeting-notes-summary/src

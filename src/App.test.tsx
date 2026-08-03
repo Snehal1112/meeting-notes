@@ -35,6 +35,7 @@ const orphan: MeetingMeta = {
   created_at: "2026-08-02T09:00:00Z",
   duration_seconds: null,
   status: "Recording",
+  meeting_type: "AutoDetect",
   used_system_audio: true,
 };
 

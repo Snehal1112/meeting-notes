@@ -1,4 +1,4 @@
-use super::meeting::{MeetingMeta, MeetingStatus};
+use super::meeting::{MeetingMeta, MeetingStatus, MeetingType};
 use super::notes_markdown::render_summary_markdown;
 use super::summary::{ActionItem, SummaryResult, Topic};
 
@@ -10,6 +10,7 @@ fn meeting() -> MeetingMeta {
         duration_seconds: Some(725),
         status: MeetingStatus::Done,
         used_system_audio: true,
+        meeting_type: MeetingType::AutoDetect,
     }
 }
 
