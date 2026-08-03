@@ -3,6 +3,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 export interface ActionItem {
   id: string;
   text: string;
+  owner: string | null;
   completed: boolean;
 }
 
@@ -29,6 +30,7 @@ export function ActionItemsList({ items, onToggle }: ActionItemsListProps) {
             className={item.completed ? "line-through text-muted-foreground" : ""}
           >
             {item.text}
+            {item.owner && <span className="text-muted-foreground"> — {item.owner}</span>}
           </label>
         </li>
       ))}

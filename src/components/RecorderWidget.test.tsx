@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { RecorderWidget } from "./RecorderWidget";
 import type { MeetingMeta } from "@/lib/storage";
+import type { SummaryResult } from "@/lib/summary";
 
 vi.mock("@/lib/recording", () => ({
   startRecording: vi.fn(),
@@ -60,9 +61,16 @@ beforeEach(async () => {
   vi.mocked(onTranscriptionComplete).mockReset().mockResolvedValue(() => {});
 
   const { summarizeMeeting } = await import("@/lib/summary");
-  vi.mocked(summarizeMeeting)
-    .mockReset()
-    .mockResolvedValue({ summary: "Discussed the roadmap.", action_items: [] });
+  vi.mocked(summarizeMeeting).mockReset().mockResolvedValue({
+    meeting_type: "Team sync",
+    attendees: [],
+    referenced_people: [],
+    summary: "Discussed the roadmap.",
+    topics: [],
+    decisions: [],
+    action_items: [],
+    open_questions: [],
+  });
 
   const { getConfig } = await import("@/lib/config");
   vi.mocked(getConfig).mockReset().mockResolvedValue({
@@ -416,10 +424,7 @@ describe("RecorderWidget summary integration", () => {
 });
 
 describe("RecorderWidget done state", () => {
-  async function completeAFlowWith(summary: {
-    summary: string;
-    action_items: string[];
-  }) {
+  async function completeAFlowWith(summary: SummaryResult) {
     const { onTranscriptionComplete } = await import("@/lib/transcription");
     const { summarizeMeeting } = await import("@/lib/summary");
     let fire: ((meeting: MeetingMeta) => void) | undefined;
@@ -440,8 +445,17 @@ describe("RecorderWidget done state", () => {
 
   it("shows the summary text and one checkbox per action item", async () => {
     await completeAFlowWith({
+      meeting_type: "Team sync",
+      attendees: [],
+      referenced_people: [],
       summary: "Discussed the Q3 roadmap.",
-      action_items: ["Send follow-up email", "Book the room"],
+      topics: [],
+      decisions: [],
+      action_items: [
+        { text: "Send follow-up email", owner: null },
+        { text: "Book the room", owner: null },
+      ],
+      open_questions: [],
     });
 
     expect(await screen.findByText(/discussed the q3 roadmap/i)).toBeInTheDocument();
@@ -451,8 +465,14 @@ describe("RecorderWidget done state", () => {
 
   it("checks an action item when its checkbox is clicked", async () => {
     await completeAFlowWith({
+      meeting_type: "Team sync",
+      attendees: [],
+      referenced_people: [],
       summary: "Discussed the Q3 roadmap.",
-      action_items: ["Send follow-up email"],
+      topics: [],
+      decisions: [],
+      action_items: [{ text: "Send follow-up email", owner: null }],
+      open_questions: [],
     });
 
     await userEvent.click(await screen.findByRole("tab", { name: /action items/i }));
@@ -463,7 +483,16 @@ describe("RecorderWidget done state", () => {
   });
 
   it("returns to idle when New Recording is clicked", async () => {
-    await completeAFlowWith({ summary: "Discussed the Q3 roadmap.", action_items: [] });
+    await completeAFlowWith({
+      meeting_type: "Team sync",
+      attendees: [],
+      referenced_people: [],
+      summary: "Discussed the Q3 roadmap.",
+      topics: [],
+      decisions: [],
+      action_items: [],
+      open_questions: [],
+    });
 
     fireEvent.click(await screen.findByRole("button", { name: /new recording/i }));
     expect(await screen.findByRole("button", { name: /start recording/i })).toBeInTheDocument();
@@ -480,8 +509,14 @@ describe("RecorderWidget done state tabs", () => {
       return () => {};
     });
     vi.mocked(summarizeMeeting).mockResolvedValue({
+      meeting_type: "Team sync",
+      attendees: [],
+      referenced_people: [],
       summary: "Discussed the Q3 roadmap.",
-      action_items: ["Send follow-up email"],
+      topics: [],
+      decisions: [],
+      action_items: [{ text: "Send follow-up email", owner: null }],
+      open_questions: [],
     });
 
     render(<RecorderWidget />);
@@ -689,5 +724,74 @@ describe("RecorderWidget resuming an interrupted recording", () => {
     render(<RecorderWidget resumeMeeting={null} />);
     expect(screen.getByRole("button", { name: /start recording/i })).toBeInTheDocument();
     expect(transcribeMeeting).not.toHaveBeenCalled();
+  });
+});
+
+const notes = (overrides: Partial<SummaryResult> = {}): SummaryResult => ({
+  meeting_type: "Team sync",
+  attendees: [],
+  referenced_people: [],
+  summary: "Discussed the Q3 roadmap.",
+  topics: [],
+  decisions: [],
+  action_items: [],
+  open_questions: [],
+  ...overrides,
+});
+
+describe("RecorderWidget structured notes", () => {
+  async function completeAFlowWithNotes(result: SummaryResult) {
+    const { onTranscriptionComplete } = await import("@/lib/transcription");
+    const { summarizeMeeting } = await import("@/lib/summary");
+    let fire: ((meeting: MeetingMeta) => void) | undefined;
+    vi.mocked(onTranscriptionComplete).mockImplementation(async (callback) => {
+      fire = callback;
+      return () => {};
+    });
+    vi.mocked(summarizeMeeting).mockResolvedValue(result);
+
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+    await vi.waitFor(() => expect(fire).toBeDefined());
+    await act(async () => {
+      fire!({ ...fakeMeeting, status: "Summarizing" });
+    });
+  }
+
+  it("renders topic headings and their points on the summary tab", async () => {
+    await completeAFlowWithNotes(
+      notes({ topics: [{ title: "Q3 OKRs", points: ["Events grew from 8 to 18."] }] })
+    );
+    expect(await screen.findByText("Q3 OKRs")).toBeInTheDocument();
+    expect(screen.getByText(/events grew from 8 to 18/i)).toBeInTheDocument();
+  });
+
+  it("renders decisions and open questions on the summary tab", async () => {
+    await completeAFlowWithNotes(
+      notes({ decisions: ["Assignments stay self-managed."], open_questions: ["Who covers chat?"] })
+    );
+    expect(await screen.findByText(/assignments stay self-managed/i)).toBeInTheDocument();
+    expect(screen.getByText(/who covers chat\?/i)).toBeInTheDocument();
+  });
+
+  it("omits the decisions heading when there are none", async () => {
+    await completeAFlowWithNotes(notes({ decisions: [] }));
+    await screen.findByText(/discussed the q3 roadmap/i);
+    expect(screen.queryByText(/^decisions$/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the owner next to an action item that has one", async () => {
+    await completeAFlowWithNotes(
+      notes({
+        action_items: [
+          { text: "Grab a booth slot", owner: "Parker" },
+          { text: "Create a checklist", owner: null },
+        ],
+      })
+    );
+    await userEvent.click(await screen.findByRole("tab", { name: /action items/i }));
+    expect(await screen.findByText(/parker/i)).toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
   });
 });

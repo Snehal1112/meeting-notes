@@ -7,7 +7,7 @@ describe("ActionItemsList", () => {
     const onToggle = vi.fn();
     render(
       <ActionItemsList
-        items={[{ id: "0", text: "Send follow-up email", completed: false }]}
+        items={[{ id: "0", text: "Send follow-up email", owner: null, completed: false }]}
         onToggle={onToggle}
       />
     );
@@ -19,8 +19,8 @@ describe("ActionItemsList", () => {
     render(
       <ActionItemsList
         items={[
-          { id: "0", text: "Send follow-up email", completed: true },
-          { id: "1", text: "Book the room", completed: false },
+          { id: "0", text: "Send follow-up email", owner: null, completed: true },
+          { id: "1", text: "Book the room", owner: null, completed: false },
         ]}
         onToggle={() => {}}
       />

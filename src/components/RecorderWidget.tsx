@@ -126,7 +126,12 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
           // Action items are stored flat (no per-item ids) by design, so the
           // checklist keys off the array position.
           setActionItems(
-            result.action_items.map((text, i) => ({ id: String(i), text, completed: false }))
+            result.action_items.map((item, i) => ({
+              id: String(i),
+              text: item.text,
+              owner: item.owner,
+              completed: false,
+            }))
           );
         } catch (err) {
           // The transcript is already on disk, so a summary failure is not
@@ -336,7 +341,39 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
           {summaryError ? (
             <p className="text-xs text-muted-foreground">{summaryError}</p>
           ) : (
-            <p>{summaryResult?.summary}</p>
+            <div className="space-y-3">
+              <p>{summaryResult?.summary}</p>
+              {summaryResult?.topics.map((topic) => (
+                <div key={topic.title}>
+                  <h3 className="font-medium">{topic.title}</h3>
+                  <ul className="list-disc pl-4">
+                    {topic.points.map((point) => (
+                      <li key={point}>{point}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+              {summaryResult && summaryResult.decisions.length > 0 && (
+                <div>
+                  <h3 className="font-medium">Decisions</h3>
+                  <ul className="list-disc pl-4">
+                    {summaryResult.decisions.map((d) => (
+                      <li key={d}>{d}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {summaryResult && summaryResult.open_questions.length > 0 && (
+                <div>
+                  <h3 className="font-medium">Open Questions</h3>
+                  <ul className="list-disc pl-4">
+                    {summaryResult.open_questions.map((q) => (
+                      <li key={q}>{q}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
           )}
         </TabsContent>
         <TabsContent value="actions" className="overflow-y-auto flex-1">
