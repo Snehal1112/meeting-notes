@@ -345,7 +345,16 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
             </Button>
           </div>
         ) : (
-          <span>{processingStatus === "transcribing" ? "Transcribing…" : "Generating summary…"}</span>
+          <div className="flex flex-col items-center gap-1">
+            <span>
+              {processingStatus === "transcribing" ? "Transcribing…" : "Generating summary…"}
+            </span>
+            {processingStatus === "summarizing" && (
+              <span className="text-xs">
+                Long meetings are summarized in several passes — this may take a few minutes.
+              </span>
+            )}
+          </div>
         )}
       </div>
     );

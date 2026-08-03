@@ -862,3 +862,27 @@ describe("RecorderWidget provider picker", () => {
     );
   });
 });
+
+describe("RecorderWidget long-run progress", () => {
+  it("explains that summarizing takes a while instead of showing a bare label", async () => {
+    const { onTranscriptionComplete } = await import("@/lib/transcription");
+    const { summarizeMeeting } = await import("@/lib/summary");
+    let fire: ((meeting: MeetingMeta) => void) | undefined;
+    vi.mocked(onTranscriptionComplete).mockImplementation(async (callback) => {
+      fire = callback;
+      return () => {};
+    });
+    vi.mocked(summarizeMeeting).mockImplementation(() => new Promise(() => {}));
+
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+    await vi.waitFor(() => expect(fire).toBeDefined());
+    await act(async () => {
+      fire!({ ...fakeMeeting, status: "Summarizing" });
+    });
+
+    expect(await screen.findByText(/generating summary/i)).toBeInTheDocument();
+    expect(screen.getByText(/may take a few minutes/i)).toBeInTheDocument();
+  });
+});
