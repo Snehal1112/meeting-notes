@@ -120,7 +120,7 @@ async fn rejects_an_empty_transcript_before_calling_the_provider() {
 
 #[test]
 fn parses_a_fragment_containing_only_its_own_fields() {
-    let parsed = parse_pass_fragment(PASS_B).expect("parse");
+    let parsed = parse_pass_fragment(PASS_B, &["action_items"]).expect("parse");
     assert_eq!(parsed.action_items.len(), 1);
     assert!(parsed.topics.is_empty());
 }
@@ -128,11 +128,31 @@ fn parses_a_fragment_containing_only_its_own_fields() {
 #[test]
 fn strips_markdown_fences_the_model_adds_despite_instructions() {
     let fenced = "```json\n{\"open_questions\":[\"Who?\"]}\n```";
-    let parsed = parse_pass_fragment(fenced).expect("parse");
+    let parsed = parse_pass_fragment(fenced, &["open_questions"]).expect("parse");
     assert_eq!(parsed.open_questions, vec!["Who?".to_string()]);
 }
 
 #[test]
 fn returns_an_error_for_a_malformed_fragment() {
-    assert!(parse_pass_fragment("not json at all").is_err());
+    assert!(parse_pass_fragment("not json at all", &["open_questions"]).is_err());
+}
+
+#[test]
+fn errors_when_the_required_key_is_missing_even_though_the_json_is_valid() {
+    // Valid JSON, but shaped for a different question than the one asked —
+    // e.g. the model used "questions" instead of "open_questions". Silently
+    // parsing this to an empty SummaryResult would drop a whole section.
+    let wrong_key = r#"{"questions":["Who owns this?"]}"#;
+    let err = parse_pass_fragment(wrong_key, &["open_questions"]).unwrap_err();
+    assert!(err.contains("open_questions"), "error should name the missing key: {err}");
+    assert!(err.contains("questions"), "error should list the keys present: {err}");
+}
+
+#[test]
+fn succeeds_when_the_required_key_is_present_but_its_value_is_empty() {
+    // A meeting with genuinely no open questions is valid and must still
+    // succeed — the check is for key presence, not non-emptiness.
+    let empty = r#"{"open_questions":[]}"#;
+    let parsed = parse_pass_fragment(empty, &["open_questions"]).expect("parse");
+    assert!(parsed.open_questions.is_empty());
 }

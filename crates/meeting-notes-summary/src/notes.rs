@@ -34,7 +34,24 @@ const PASS_QUESTIONS: &str = r#"Extract unresolved questions from this meeting t
 {"open_questions": [string]}
 No preamble, no markdown fences."#;
 
-const PASSES: [&str; 3] = [PASS_NOTES, PASS_ACTIONS, PASS_QUESTIONS];
+/// One generation pass: its prompt, and the top-level JSON key(s) a
+/// well-formed response must carry. Every `SummaryResult` field is
+/// `#[serde(default)]` so serde alone cannot tell "the model answered with an
+/// empty section" from "the model answered a different question entirely" —
+/// checking for the owning key(s) is what catches the latter.
+struct Pass {
+    prompt: &'static str,
+    required_keys: &'static [&'static str],
+}
+
+const PASSES: [Pass; 3] = [
+    // Pass A owns several fields; requiring topics and summary is enough to
+    // catch a response shaped for a different prompt without demanding every
+    // field (e.g. decisions is legitimately often empty).
+    Pass { prompt: PASS_NOTES, required_keys: &["topics", "summary"] },
+    Pass { prompt: PASS_ACTIONS, required_keys: &["action_items"] },
+    Pass { prompt: PASS_QUESTIONS, required_keys: &["open_questions"] },
+];
 
 /// Generates the full notes for `transcript`.
 ///
@@ -54,10 +71,10 @@ pub async fn generate_notes(
 
     let mut fragments = Vec::new();
     for chunk in &chunks {
-        for pass in PASSES {
-            let prompt = format!("{pass}\n\n{TRANSCRIPT_CAVEAT}\n\nTranscript:\n{chunk}");
+        for pass in &PASSES {
+            let prompt = format!("{}\n\n{TRANSCRIPT_CAVEAT}\n\nTranscript:\n{chunk}", pass.prompt);
             let raw = provider.complete_json(&prompt).await?;
-            fragments.push(parse_pass_fragment(&raw)?);
+            fragments.push(parse_pass_fragment(&raw, pass.required_keys)?);
         }
     }
 
@@ -66,11 +83,33 @@ pub async fn generate_notes(
 
 /// Parses one pass's JSON fragment into a partially-filled `SummaryResult`.
 ///
-/// Every field of `SummaryResult` defaults, so a fragment carrying only its
-/// own keys parses cleanly.
-pub fn parse_pass_fragment(raw: &str) -> Result<SummaryResult, String> {
-    serde_json::from_str(strip_code_fences(raw))
-        .map_err(|e| format!("failed to parse LLM response as JSON: {e}"))
+/// Every field of `SummaryResult` defaults, so serde alone would silently
+/// accept a fragment carrying none of its expected keys (e.g. the model
+/// answered with `{"questions": [...]}` instead of `{"open_questions":
+/// [...]}`) and return an empty result instead of an error. Checking that
+/// every key in `required_keys` is present — not necessarily non-empty —
+/// catches that: a section with genuinely nothing to report (e.g. no open
+/// questions) is still valid.
+pub fn parse_pass_fragment(raw: &str, required_keys: &[&str]) -> Result<SummaryResult, String> {
+    let stripped = strip_code_fences(raw);
+    let value: serde_json::Value = serde_json::from_str(stripped)
+        .map_err(|e| format!("failed to parse LLM response as JSON: {e}"))?;
+
+    let object = value
+        .as_object()
+        .ok_or_else(|| format!("expected a JSON object, got: {stripped}"))?;
+
+    for key in required_keys {
+        if !object.contains_key(*key) {
+            let present: Vec<&str> = object.keys().map(String::as_str).collect();
+            return Err(format!(
+                "LLM response is missing required key \"{key}\"; keys present: [{}]",
+                present.join(", ")
+            ));
+        }
+    }
+
+    serde_json::from_value(value).map_err(|e| format!("failed to parse LLM response as JSON: {e}"))
 }
 
 /// Removes a ```json ... ``` wrapper. Models add these despite being told
