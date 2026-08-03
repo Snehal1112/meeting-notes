@@ -8,7 +8,7 @@ import {
 import type { MeetingType } from "@/lib/storage";
 import { Sparkles, Users, RotateCcw, Lightbulb, AlertTriangle, type LucideIcon } from "lucide-react";
 
-const MEETING_TYPES: { value: MeetingType; label: string; icon: LucideIcon }[] = [
+export const MEETING_TYPES: { value: MeetingType; label: string; icon: LucideIcon }[] = [
   { value: "AutoDetect", label: "Auto-detect", icon: Sparkles },
   { value: "Standup", label: "Standup", icon: Users },
   { value: "Retrospective", label: "Retrospective", icon: RotateCcw },

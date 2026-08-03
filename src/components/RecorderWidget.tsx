@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { startRecording, stopRecording } from "@/lib/recording";
-import { MeetingTypePicker } from "@/components/MeetingTypePicker";
+import { MeetingTypePicker, MEETING_TYPES } from "@/components/MeetingTypePicker";
 import {
   createNewMeeting,
   getDataDir,
@@ -15,10 +15,22 @@ import { transcribeMeeting, readTranscriptText, onTranscriptionComplete } from "
 import { getConfig, setSummaryProvider, type AppConfig } from "@/lib/config";
 import { summarizeMeeting, toProviderKind, type SummaryResult, type ProviderKind } from "@/lib/summary";
 import { Waveform } from "@/components/Waveform";
-import { ActionItemsList, type ActionItem } from "@/components/ActionItemsList";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 import { ProviderPicker, type ProviderName } from "@/components/ProviderPicker";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Mic, MicOff, Square, AlertTriangle } from "lucide-react";
+
+// Action items are stored flat (no per-item ids), see runSummarization below
+// -- the checklist keys off array position instead.
+export interface ActionItem {
+  id: string;
+  text: string;
+  owner: string | null;
+  completed: boolean;
+}
 
 export type WidgetState = "idle" | "recording" | "processing" | "done";
 // "choosing_provider" is a distinct sub-status from "summarizing": it's the
@@ -628,9 +640,50 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
     );
   }
 
+  // The meeting-type icon+label to show as a Badge in the Done header,
+  // reusing the same list the idle-state MeetingTypePicker renders from so
+  // the two never drift. currentMeetingRef.current?.meeting_type is the
+  // MeetingType chosen (or auto-detected) for this meeting -- distinct from
+  // summaryResult.meeting_type, which is a free-form string the model wrote
+  // for the saved notes, not this fixed set of values.
+  const doneMeetingType = MEETING_TYPES.find(
+    (type) => type.value === currentMeetingRef.current?.meeting_type
+  );
+
   return (
     <div className="flex flex-col gap-2 h-full text-sm">
       {qualityWarning && <span className="text-xs text-amber-600">{qualityWarning}</span>}
+      <div className="flex items-center gap-2 min-w-0">
+        {doneMeetingType && (
+          <Badge variant="outline" className="flex-shrink-0 gap-1">
+            <doneMeetingType.icon className="text-muted-foreground" />
+            {doneMeetingType.label}
+          </Badge>
+        )}
+        {summaryResult &&
+          (summaryResult.attendees.length > 0 ? (
+            <div className="flex min-w-0 items-center gap-1.5">
+              <div className="flex -space-x-2 flex-shrink-0">
+                {summaryResult.attendees.map((name, i) => (
+                  <Avatar key={i} title={name} className="h-6 w-6 border-2 border-background">
+                    <AvatarFallback>{initials(name)}</AvatarFallback>
+                  </Avatar>
+                ))}
+              </div>
+              {summaryResult.referenced_people.length > 0 && (
+                // Referenced-but-unconfirmed people are a distinct category
+                // from confirmed attendees, so they stay out of the avatar
+                // pile and get a compact caption instead -- see the wording
+                // in notes_markdown.rs, which this deliberately mirrors.
+                <span className="text-xs text-muted-foreground truncate">
+                  · also referenced: {summaryResult.referenced_people.join(", ")}
+                </span>
+              )}
+            </div>
+          ) : (
+            <span className="text-xs text-muted-foreground">Attendees not identified</span>
+          ))}
+      </div>
       <Tabs defaultValue="summary" className="flex-1 flex flex-col overflow-hidden">
         <TabsList className="grid grid-cols-3">
           <TabsTrigger value="summary">Summary</TabsTrigger>
@@ -649,17 +702,6 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
                 // preserve).
                 <p role="alert" className="text-xs text-red-600">
                   {summaryError}
-                </p>
-              )}
-              {summaryResult && summaryResult.attendees.length > 0 && (
-                // Wording mirrors notes_markdown.rs so the widget and the
-                // saved summary.md describe the same people the same way.
-                // "mentioned" is deliberate: names come from what was said in
-                // the transcript, not from any speaker identification.
-                <p className="text-xs text-muted-foreground">
-                  Attendees mentioned: {summaryResult.attendees.join(", ")}
-                  {summaryResult.referenced_people.length > 0 &&
-                    ` (referenced but not confirmed on the call: ${summaryResult.referenced_people.join(", ")})`}
                 </p>
               )}
               <p>{summaryResult?.summary}</p>
@@ -704,12 +746,38 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
           ) : null}
         </TabsContent>
         <TabsContent value="actions" className="overflow-y-auto flex-1">
-          <ActionItemsList items={actionItems} onToggle={toggleActionItem} />
+          {actionItems.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No action items found.</p>
+          ) : (
+            <ul className="space-y-2">
+              {actionItems.map((item) => (
+                <li key={item.id} className="flex items-start gap-2">
+                  <Checkbox
+                    id={`action-item-${item.id}`}
+                    checked={item.completed}
+                    onCheckedChange={() => toggleActionItem(item.id)}
+                  />
+                  <label
+                    htmlFor={`action-item-${item.id}`}
+                    className={
+                      item.completed
+                        ? "flex flex-1 flex-wrap items-center gap-1.5 line-through text-muted-foreground"
+                        : "flex flex-1 flex-wrap items-center gap-1.5"
+                    }
+                  >
+                    {item.text}
+                    {item.owner && <Badge variant="secondary">{item.owner}</Badge>}
+                  </label>
+                </li>
+              ))}
+            </ul>
+          )}
         </TabsContent>
         <TabsContent value="transcript" className="overflow-y-auto flex-1 text-xs">
           {transcriptText || "Transcript unavailable."}
         </TabsContent>
       </Tabs>
+      <Separator />
       <div className="flex gap-2">
         <Button
           variant="outline"
@@ -725,6 +793,7 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
           New Recording
         </Button>
         <Button
+          variant="success"
           size="sm"
           onClick={() => {
             summarizeRunRef.current++;
@@ -741,6 +810,19 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
       </div>
     </div>
   );
+}
+
+// Initials for the Done-state attendee face-pile: first letter of each
+// space-separated word, capped at two characters, uppercased -- e.g.
+// "Parker" -> "P", "Devi Shah" -> "DS".
+function initials(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .map((part) => part[0] ?? "")
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 }
 
 function errorMessage(err: unknown): string {

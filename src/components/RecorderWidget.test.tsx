@@ -506,7 +506,7 @@ describe("RecorderWidget done state", () => {
     expect(await screen.findAllByRole("checkbox")).toHaveLength(2);
   });
 
-  it("lists the attendees the model identified from the transcript", async () => {
+  it("shows a face-pile avatar for each attendee the model identified", async () => {
     await completeAFlowWith({
       meeting_type: "Team sync",
       attendees: ["Parker", "Devi"],
@@ -518,7 +518,10 @@ describe("RecorderWidget done state", () => {
       open_questions: [],
     });
 
-    expect(await screen.findByText(/attendees mentioned: Parker, Devi/i)).toBeInTheDocument();
+    // Each Avatar is titled with the attendee's full name; its fallback
+    // shows their initials.
+    expect(await screen.findByTitle("Parker")).toBeInTheDocument();
+    expect(screen.getByTitle("Devi")).toBeInTheDocument();
   });
 
   it("separates people who were only referenced from those on the call", async () => {
@@ -533,15 +536,17 @@ describe("RecorderWidget done state", () => {
       open_questions: [],
     });
 
-    const line = await screen.findByText(/attendees mentioned/i);
-    expect(line).toHaveTextContent("Attendees mentioned: Parker");
-    expect(line).toHaveTextContent("referenced but not confirmed on the call: Craig");
+    // Confirmed attendees render as avatars, not text -- referenced-but-
+    // unconfirmed people stay a separate, distinguishable caption instead of
+    // being folded into the same avatar pile.
+    expect(await screen.findByTitle("Parker")).toBeInTheDocument();
+    expect(screen.queryByTitle("Craig")).not.toBeInTheDocument();
+    expect(screen.getByText(/also referenced: Craig/i)).toBeInTheDocument();
   });
 
-  it("omits the attendee line entirely when no names were identified", async () => {
+  it("shows a fallback when no attendees were identified", async () => {
     // The transcript has no speaker labels, so an empty list is the honest
-    // and common outcome. Rendering "Attendees: none" would read as a
-    // finding rather than an absence.
+    // and common outcome.
     await completeAFlowWith({
       meeting_type: "Team sync",
       attendees: [],
@@ -554,7 +559,7 @@ describe("RecorderWidget done state", () => {
     });
 
     await screen.findByText(/discussed the q3 roadmap/i);
-    expect(screen.queryByText(/attendees mentioned/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/attendees not identified/i)).toBeInTheDocument();
   });
 
   it("checks an action item when its checkbox is clicked", async () => {
@@ -590,6 +595,26 @@ describe("RecorderWidget done state", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /new recording/i }));
     expect(await screen.findByRole("button", { name: /start recording/i })).toBeInTheDocument();
+  });
+
+  // Coverage moved from the deleted ActionItemsList.test.tsx: that component
+  // is now rendered inline in this Done branch rather than as a separate
+  // component, but the empty-state message it owned must still show up.
+  it("shows an empty-state message on the Action Items tab when there are none", async () => {
+    await completeAFlowWith({
+      meeting_type: "Team sync",
+      attendees: [],
+      referenced_people: [],
+      summary: "Discussed the Q3 roadmap.",
+      topics: [],
+      decisions: [],
+      action_items: [],
+      open_questions: [],
+    });
+
+    await userEvent.click(await screen.findByRole("tab", { name: /action items/i }));
+    expect(await screen.findByText(/no action items found/i)).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
 });
 
