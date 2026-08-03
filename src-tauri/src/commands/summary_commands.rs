@@ -1,8 +1,10 @@
 use meeting_notes_core::config::resolve_config;
 use meeting_notes_core::meeting::{MeetingMeta, MeetingStatus};
+use meeting_notes_core::notes_markdown::render_summary_markdown;
 use meeting_notes_core::summary::{SummaryProvider, SummaryResult};
 use meeting_notes_storage::{base_dir, load_index, update_meeting};
 use meeting_notes_summary::build_provider;
+use meeting_notes_summary::notes::generate_notes;
 use std::path::Path;
 use tauri::{AppHandle, Emitter};
 
@@ -51,9 +53,9 @@ async fn run_summarize_or_mark_failed(
     }
 }
 
-/// Reads the transcript, calls the selected provider, writes the summary
-/// files, and marks the meeting Done in the index. Returns the summary
-/// result and the updated meeting on success.
+/// Reads the transcript, generates the notes, writes the summary files, and
+/// marks the meeting Done in the index. Returns the notes and the updated
+/// meeting on success.
 async fn run_summarize(
     base: &Path,
     meeting: MeetingMeta,
@@ -63,9 +65,9 @@ async fn run_summarize(
     let transcript = std::fs::read_to_string(meeting_dir.join("transcript.txt"))
         .map_err(|e| format!("could not read transcript: {e}"))?;
 
-    let result = provider.generate(&transcript).await?;
+    let result = generate_notes(provider.as_ref(), &transcript).await?;
 
-    write_summary_files(&meeting_dir, &result)?;
+    write_summary_files(&meeting_dir, &result, &meeting)?;
 
     let mut updated = meeting;
     updated.status = MeetingStatus::Done;
@@ -101,21 +103,16 @@ fn find_meeting(base: &Path, meeting_id: &str) -> Result<MeetingMeta, String> {
 }
 
 /// Writes `summary.md` and `action_items.json` into the meeting's directory.
-/// Split out from `summarize_meeting` so the AppHandle-free file-writing
-/// logic can be unit tested directly.
-fn write_summary_files(meeting_dir: &Path, result: &SummaryResult) -> Result<(), String> {
+/// `meeting` supplies the title, date and duration that head the document,
+/// so those are never taken from the model.
+fn write_summary_files(
+    meeting_dir: &Path,
+    result: &SummaryResult,
+    meeting: &MeetingMeta,
+) -> Result<(), String> {
     std::fs::write(
         meeting_dir.join("summary.md"),
-        format!(
-            "{}\n\n## Action Items\n{}",
-            result.summary,
-            result
-                .action_items
-                .iter()
-                .map(|i| format!("- [ ] {i}"))
-                .collect::<Vec<_>>()
-                .join("\n")
-        ),
+        render_summary_markdown(result, meeting),
     )
     .map_err(|e| e.to_string())?;
 
@@ -123,7 +120,14 @@ fn write_summary_files(meeting_dir: &Path, result: &SummaryResult) -> Result<(),
         .action_items
         .iter()
         .enumerate()
-        .map(|(i, text)| serde_json::json!({ "id": i.to_string(), "text": text, "completed": false }))
+        .map(|(i, item)| {
+            serde_json::json!({
+                "id": i.to_string(),
+                "text": item.text,
+                "owner": item.owner,
+                "completed": false
+            })
+        })
         .collect();
     std::fs::write(
         meeting_dir.join("action_items.json"),
@@ -135,6 +139,7 @@ fn write_summary_files(meeting_dir: &Path, result: &SummaryResult) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
+    use meeting_notes_core::summary::{ActionItem, Topic};
     use meeting_notes_storage::{append_to_index, create_meeting};
     use meeting_notes_summary::claude::ClaudeProvider;
     use std::path::PathBuf;
@@ -177,25 +182,41 @@ mod tests {
     }
 
     #[test]
-    fn write_summary_files_writes_summary_and_action_items() {
+    fn write_summary_files_writes_the_rendered_notes_and_action_items() {
         let base = temp_base("writes-files");
         let meeting = create_meeting(&base, "Test meeting").expect("create meeting");
         let meeting_dir = meeting.dir_path(&base);
 
         let result = SummaryResult {
+            meeting_type: "Team sync".to_string(),
+            attendees: vec!["Parker".to_string()],
+            referenced_people: vec![],
             summary: "Discussed the roadmap.".to_string(),
-            action_items: vec!["Send follow-up email".to_string()],
+            topics: vec![Topic {
+                title: "Roadmap".to_string(),
+                points: vec!["Shipping on Friday.".to_string()],
+            }],
+            decisions: vec!["Ship Friday.".to_string()],
+            action_items: vec![ActionItem {
+                text: "Send follow-up email".to_string(),
+                owner: Some("Parker".to_string()),
+            }],
+            open_questions: vec!["Who writes the release note?".to_string()],
         };
-        write_summary_files(&meeting_dir, &result).expect("write summary files");
+        write_summary_files(&meeting_dir, &result, &meeting).expect("write summary files");
 
         let summary_md =
             std::fs::read_to_string(meeting_dir.join("summary.md")).expect("read summary.md");
-        assert!(summary_md.contains("Discussed the roadmap."));
-        assert!(summary_md.contains("- [ ] Send follow-up email"));
+        assert!(summary_md.contains("# Test meeting"));
+        assert!(summary_md.contains("## Discussion Notes"));
+        assert!(summary_md.contains("### Roadmap"));
+        assert!(summary_md.contains("## Open Questions"));
+        assert!(summary_md.contains("- [ ] Send follow-up email — Parker"));
 
         let action_items_json = std::fs::read_to_string(meeting_dir.join("action_items.json"))
             .expect("read action_items.json");
         assert!(action_items_json.contains("Send follow-up email"));
+        assert!(action_items_json.contains("\"owner\": \"Parker\""));
         assert!(action_items_json.contains("\"completed\": false"));
 
         std::fs::remove_dir_all(&base).ok();
