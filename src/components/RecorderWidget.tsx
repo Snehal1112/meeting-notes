@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { startRecording, stopRecording } from "@/lib/recording";
 import { MeetingTypePicker } from "@/components/MeetingTypePicker";
 import {
@@ -12,14 +13,18 @@ import {
 } from "@/lib/storage";
 import { transcribeMeeting, readTranscriptText, onTranscriptionComplete } from "@/lib/transcription";
 import { getConfig, setSummaryProvider, type AppConfig } from "@/lib/config";
-import { summarizeMeeting, type SummaryResult } from "@/lib/summary";
+import { summarizeMeeting, type SummaryResult, type ProviderKind } from "@/lib/summary";
 import { Waveform } from "@/components/Waveform";
 import { ActionItemsList, type ActionItem } from "@/components/ActionItemsList";
 import { ProviderPicker, type ProviderName } from "@/components/ProviderPicker";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 type WidgetState = "idle" | "recording" | "processing" | "done";
-type ProcessingStatus = "transcribing" | "summarizing";
+// "choosing_provider" is a distinct sub-status from "summarizing": it's the
+// window between transcription finishing and the user confirming which
+// provider to use for this run, shown only when more than one provider is
+// configured. "summarizing" still means "the call is actually in flight".
+type ProcessingStatus = "transcribing" | "choosing_provider" | "summarizing";
 
 interface RecorderWidgetProps {
   /// An interrupted recording from a previous session to pick up, as offered
@@ -43,6 +48,13 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
   const [transcriptText, setTranscriptText] = useState("");
   const [busy, setBusy] = useState(false);
   const [config, setConfig] = useState<AppConfig | null>(null);
+  // Ephemeral, per-run provider choice for the summary about to be
+  // generated — distinct from ProviderPicker/handleProviderChange above,
+  // which set a persistent default saved to config. These are only
+  // populated (and only shown) when transcription just finished with more
+  // than one provider configured; they are not persisted anywhere.
+  const [availableProviders, setAvailableProviders] = useState<ProviderKind[]>([]);
+  const [selectedProvider, setSelectedProvider] = useState<ProviderKind | null>(null);
   const currentMeetingRef = useRef<MeetingMeta | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Wall-clock start time, so the elapsed timer cannot drift when ticks are throttled.
@@ -103,6 +115,52 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
     }
   }, []);
 
+  // Actually calls summarize_meeting and lands the widget in the done state.
+  // Split out from the processing effect below so it can be invoked either
+  // immediately (0 or 1 provider configured — today's behavior, unchanged)
+  // or later, from the picker's confirm button (2 providers configured), by
+  // which point the effect that discovered `meetingId` has already returned.
+  const runSummarization = useCallback(async (meetingId: string, provider?: ProviderKind) => {
+    setProcessingStatus("summarizing");
+    try {
+      // Called with only one argument (no explicit `undefined` forwarded)
+      // when there is nothing to override, so the zero-provider path is
+      // observably identical to the pre-picker call site.
+      const result = provider
+        ? await summarizeMeeting(meetingId, provider)
+        : await summarizeMeeting(meetingId);
+      setSummaryResult(result);
+      // Action items are stored flat (no per-item ids) by design, so the
+      // checklist keys off the array position.
+      setActionItems(
+        result.action_items.map((item, i) => ({
+          id: String(i),
+          text: item.text,
+          owner: item.owner,
+          completed: false,
+        }))
+      );
+    } catch (err) {
+      // The transcript is already on disk, so a summary failure is not
+      // data loss — record it and still move on to the done state
+      // rather than leaving the widget stuck on "Generating summary…".
+      //
+      // "not_configured" (no provider set up at all) is a different
+      // problem from a configured-but-broken provider, and telling the
+      // user to configure one when they already have would misdirect
+      // them, so the two get distinct messages.
+      const message = errorMessage(err);
+      console.error("Summary generation failed:", message);
+      setSummaryError(
+        message.includes("not_configured")
+          ? "Not generated — configure a provider to enable summaries."
+          : "Summary generation failed. The transcript is still available."
+      );
+    } finally {
+      setState("done");
+    }
+  }, []);
+
   // React.StrictMode (see src/main.tsx) double-invokes effects in dev:
   // mount -> run -> cleanup -> run again. Without the `cancelled` checks
   // below, that would fire two concurrent real whisper.cpp subprocesses (via
@@ -136,38 +194,41 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
           setTranscriptText("");
         }
 
-        try {
-          const result = await summarizeMeeting(updated.id);
-          setSummaryResult(result);
-          // Action items are stored flat (no per-item ids) by design, so the
-          // checklist keys off the array position.
-          setActionItems(
-            result.action_items.map((item, i) => ({
-              id: String(i),
-              text: item.text,
-              owner: item.owner,
-              completed: false,
-            }))
-          );
-        } catch (err) {
-          // The transcript is already on disk, so a summary failure is not
-          // data loss — record it and still move on to the done state
-          // rather than leaving the widget stuck on "Generating summary…".
-          //
-          // "not_configured" (no provider set up at all) is a different
-          // problem from a configured-but-broken provider, and telling the
-          // user to configure one when they already have would misdirect
-          // them, so the two get distinct messages.
-          const message = errorMessage(err);
-          console.error("Summary generation failed:", message);
-          setSummaryError(
-            message.includes("not_configured")
-              ? "Not generated — configure a provider to enable summaries."
-              : "Summary generation failed. The transcript is still available."
-          );
-        } finally {
-          setState("done");
+        // Determine which providers are actually usable for this run. Fetched
+        // fresh here (rather than reusing the mount-time `config` state)
+        // since that's what actually gates the summarize_meeting call below.
+        const cfg = await getConfig().catch((err) => {
+          console.error("Could not load config for provider selection:", errorMessage(err));
+          return null;
+        });
+        if (cancelled) return;
+
+        const available: ProviderKind[] = cfg
+          ? [
+              ...(cfg.claude_api_key ? (["Claude"] as const) : []),
+              ...(cfg.ollama_endpoint ? (["Ollama"] as const) : []),
+            ]
+          : [];
+        setAvailableProviders(available);
+
+        if (available.length === 2) {
+          // Both providers configured: don't auto-select — let the user
+          // choose, and don't call summarizeMeeting until they confirm.
+          // Because the call doesn't start until then, changing the
+          // selection beforehand always changes which provider actually
+          // runs; no cancellation of an in-flight call is needed.
+          setSelectedProvider(available[0]);
+          setProcessingStatus("choosing_provider");
+          return;
         }
+
+        // 0 or 1 provider configured: unchanged from before — proceed
+        // immediately with the single available provider (or with none at
+        // all, letting the "not_configured" error path fire as usual).
+        // available[0] is undefined in the zero-provider case; see
+        // runSummarization for why that doesn't reach summarizeMeeting as an
+        // explicit extra argument.
+        await runSummarization(updated.id, available[0]);
       });
       unlisten = stopListening;
       if (cancelled) {
@@ -199,6 +260,15 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
     } catch (err) {
       console.error("Could not save the provider choice:", errorMessage(err));
     }
+  };
+
+  // Fires only from the picker shown in the "choosing_provider" sub-status
+  // (two providers configured) — this is the moment the deferred
+  // summarize_meeting call actually starts, using whatever was selected.
+  const handleConfirmProvider = () => {
+    const meeting = currentMeetingRef.current;
+    if (!meeting || !selectedProvider) return;
+    void runSummarization(meeting.id, selectedProvider);
   };
 
   const handleStart = async () => {
@@ -351,6 +421,33 @@ export function RecorderWidget({ resumeMeeting = null }: RecorderWidgetProps = {
             <span className="text-xs text-muted-foreground">{transcriptionError}</span>
             <Button size="sm" variant="outline" onClick={() => runTranscription()}>
               Retry
+            </Button>
+          </div>
+        ) : processingStatus === "choosing_provider" ? (
+          // Shown only when transcription just finished and more than one
+          // provider is configured — see the processing effect above. The
+          // summarize_meeting call is deliberately deferred until Generate
+          // Summary is clicked, so switching the selection here always
+          // changes which provider actually runs.
+          <div className="flex flex-col items-center gap-2">
+            <span>Choose a provider for this summary</span>
+            <Select
+              value={selectedProvider ?? undefined}
+              onValueChange={(next) => setSelectedProvider(next as ProviderKind)}
+            >
+              <SelectTrigger aria-label="Summary provider" className="w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {availableProviders.map((provider) => (
+                  <SelectItem key={provider} value={provider}>
+                    {provider}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button size="sm" onClick={handleConfirmProvider} disabled={!selectedProvider}>
+              Generate Summary
             </Button>
           </div>
         ) : (

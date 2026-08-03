@@ -930,6 +930,74 @@ describe("RecorderWidget provider picker", () => {
   });
 });
 
+describe("RecorderWidget manual provider selection at summarize time", () => {
+  // Distinct from "RecorderWidget provider picker" above: that one sets a
+  // persistent default (summary_provider) via the idle-state ProviderPicker.
+  // This describes the ephemeral, per-run choice offered once transcription
+  // finishes with more than one provider configured.
+  async function reachChoosingProvider() {
+    const { onTranscriptionComplete } = await import("@/lib/transcription");
+    let fire: ((meeting: MeetingMeta) => void) | undefined;
+    vi.mocked(onTranscriptionComplete).mockImplementation(async (callback) => {
+      fire = callback;
+      return () => {};
+    });
+
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+    await vi.waitFor(() => expect(fire).toBeDefined());
+    await act(async () => {
+      fire!({ ...fakeMeeting, status: "Summarizing" });
+    });
+  }
+
+  beforeEach(async () => {
+    const { getConfig } = await import("@/lib/config");
+    vi.mocked(getConfig).mockResolvedValue({
+      claude_api_key: "sk-test",
+      ollama_endpoint: "http://localhost:11434",
+      ollama_model: null,
+      ollama_num_ctx: null,
+      summary_provider: null,
+      whisper_model: "base.en",
+    });
+  });
+
+  it("shows a picker instead of summarizing immediately when two providers are configured", async () => {
+    const { summarizeMeeting } = await import("@/lib/summary");
+    await reachChoosingProvider();
+
+    expect(await screen.findByRole("button", { name: /generate summary/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/summary provider/i)).toBeInTheDocument();
+    expect(summarizeMeeting).not.toHaveBeenCalled();
+  });
+
+  it("calls summarizeMeeting with the selected provider once Generate Summary is clicked", async () => {
+    const { summarizeMeeting } = await import("@/lib/summary");
+    const user = userEvent.setup();
+    await reachChoosingProvider();
+
+    // Switch away from the default (Claude, the first configured provider)
+    // before confirming — this is what the deferred call is for: the
+    // selection made before confirming is the one that actually runs.
+    await user.click(screen.getByLabelText(/summary provider/i));
+    await user.click(await screen.findByRole("option", { name: "Ollama" }));
+    await user.click(screen.getByRole("button", { name: /generate summary/i }));
+
+    await vi.waitFor(() =>
+      expect(summarizeMeeting).toHaveBeenCalledWith(fakeMeeting.id, "Ollama")
+    );
+  });
+
+  it("still reaches the done state with the summary after confirming", async () => {
+    await reachChoosingProvider();
+    await userEvent.click(screen.getByRole("button", { name: /generate summary/i }));
+
+    expect(await screen.findByText(/discussed the roadmap/i)).toBeInTheDocument();
+  });
+});
+
 describe("RecorderWidget long-run progress", () => {
   it("explains that summarizing takes a while instead of showing a bare label", async () => {
     const { onTranscriptionComplete } = await import("@/lib/transcription");
