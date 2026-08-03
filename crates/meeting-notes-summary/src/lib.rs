@@ -1,6 +1,7 @@
 pub mod claude;
 pub mod ollama;
 pub mod chunk;
+pub mod notes;
 
 use meeting_notes_core::config::{Config, DEFAULT_NUM_CTX};
 use meeting_notes_core::summary::SummaryProvider;
@@ -46,6 +47,8 @@ pub fn build_provider(config: &Config) -> Option<Box<dyn SummaryProvider + Send 
 mod chunk_tests;
 #[cfg(test)]
 mod claude_tests;
+#[cfg(test)]
+mod notes_tests;
 #[cfg(test)]
 mod ollama_tests;
 #[cfg(test)]
