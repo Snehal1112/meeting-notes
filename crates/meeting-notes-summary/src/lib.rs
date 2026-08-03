@@ -1,5 +1,6 @@
 pub mod claude;
 pub mod ollama;
+pub mod chunk;
 
 use meeting_notes_core::config::Config;
 use meeting_notes_core::summary::SummaryProvider;
@@ -40,6 +41,8 @@ pub fn build_provider(config: &Config) -> Option<Box<dyn SummaryProvider + Send 
     }
 }
 
+#[cfg(test)]
+mod chunk_tests;
 #[cfg(test)]
 mod claude_tests;
 #[cfg(test)]

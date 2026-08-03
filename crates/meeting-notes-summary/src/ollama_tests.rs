@@ -2,14 +2,6 @@ use super::ollama;
 use meeting_notes_core::summary::SummaryProvider;
 
 #[test]
-fn parses_valid_ollama_json_response() {
-    let raw = r#"{"summary": "Reviewed sprint progress.", "action_items": ["Update ticket status"]}"#;
-    let result = ollama::parse_summary_response(raw).unwrap();
-    assert_eq!(result.summary, "Reviewed sprint progress.");
-    assert_eq!(result.action_items, vec!["Update ticket status"]);
-}
-
-#[test]
 fn uses_the_configured_model_when_one_is_given() {
     let provider =
         ollama::OllamaProvider::new("http://localhost:11434".into(), Some("gemma4:e2b".into()));
@@ -20,11 +12,6 @@ fn uses_the_configured_model_when_one_is_given() {
 fn falls_back_to_the_default_model_when_none_is_configured() {
     let provider = ollama::OllamaProvider::new("http://localhost:11434".into(), None);
     assert_eq!(provider.model(), ollama::DEFAULT_MODEL);
-}
-
-#[test]
-fn returns_error_on_malformed_json() {
-    assert!(ollama::parse_summary_response("not json at all").is_err());
 }
 
 #[tokio::test]

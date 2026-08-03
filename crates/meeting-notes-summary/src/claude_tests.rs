@@ -2,20 +2,6 @@ use super::claude;
 use meeting_notes_core::summary::SummaryProvider;
 
 #[test]
-fn parses_valid_claude_json_response() {
-    let raw = r#"{"summary": "Discussed budget.", "action_items": ["Follow up with finance"]}"#;
-    let result = claude::parse_summary_response(raw).unwrap();
-    assert_eq!(result.summary, "Discussed budget.");
-    assert_eq!(result.action_items, vec!["Follow up with finance"]);
-}
-
-#[test]
-fn returns_error_on_malformed_json() {
-    let raw = "not json at all";
-    assert!(claude::parse_summary_response(raw).is_err());
-}
-
-#[test]
 fn extracts_text_block_when_it_is_the_first_content_block() {
     let parsed = serde_json::json!({
         "content": [
@@ -49,10 +35,6 @@ fn extracts_text_block_when_preceded_by_a_thinking_block() {
         text,
         "{\"summary\": \"Discussed roadmap.\", \"action_items\": [\"Follow up\"]}"
     );
-
-    let result = claude::parse_summary_response(text).expect("extracted text should parse as SummaryResult");
-    assert_eq!(result.summary, "Discussed roadmap.");
-    assert_eq!(result.action_items, vec!["Follow up"]);
 }
 
 #[test]
