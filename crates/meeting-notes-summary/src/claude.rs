@@ -37,7 +37,7 @@ impl ClaudeProvider {
 ///
 /// Also surfaces a clear error for a truncated response (`stop_reason ==
 /// "max_tokens"`) rather than letting it fall through to a generic "failed
-/// to parse LLM response as JSON" error from `parse_summary_response`.
+/// to parse LLM response as JSON" error from `notes::parse_pass_fragment`.
 pub fn extract_response_text(parsed: &serde_json::Value) -> Result<&str, String> {
     if parsed["stop_reason"] == "max_tokens" {
         return Err(
