@@ -494,6 +494,57 @@ describe("RecorderWidget done state", () => {
     expect(await screen.findAllByRole("checkbox")).toHaveLength(2);
   });
 
+  it("lists the attendees the model identified from the transcript", async () => {
+    await completeAFlowWith({
+      meeting_type: "Team sync",
+      attendees: ["Parker", "Devi"],
+      referenced_people: [],
+      summary: "Discussed the Q3 roadmap.",
+      topics: [],
+      decisions: [],
+      action_items: [],
+      open_questions: [],
+    });
+
+    expect(await screen.findByText(/attendees mentioned: Parker, Devi/i)).toBeInTheDocument();
+  });
+
+  it("separates people who were only referenced from those on the call", async () => {
+    await completeAFlowWith({
+      meeting_type: "Team sync",
+      attendees: ["Parker"],
+      referenced_people: ["Craig"],
+      summary: "Discussed the Q3 roadmap.",
+      topics: [],
+      decisions: [],
+      action_items: [],
+      open_questions: [],
+    });
+
+    const line = await screen.findByText(/attendees mentioned/i);
+    expect(line).toHaveTextContent("Attendees mentioned: Parker");
+    expect(line).toHaveTextContent("referenced but not confirmed on the call: Craig");
+  });
+
+  it("omits the attendee line entirely when no names were identified", async () => {
+    // The transcript has no speaker labels, so an empty list is the honest
+    // and common outcome. Rendering "Attendees: none" would read as a
+    // finding rather than an absence.
+    await completeAFlowWith({
+      meeting_type: "Team sync",
+      attendees: [],
+      referenced_people: [],
+      summary: "Discussed the Q3 roadmap.",
+      topics: [],
+      decisions: [],
+      action_items: [],
+      open_questions: [],
+    });
+
+    await screen.findByText(/discussed the q3 roadmap/i);
+    expect(screen.queryByText(/attendees mentioned/i)).not.toBeInTheDocument();
+  });
+
   it("checks an action item when its checkbox is clicked", async () => {
     await completeAFlowWith({
       meeting_type: "Team sync",
