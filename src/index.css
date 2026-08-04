@@ -2,13 +2,11 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/jetbrains-mono";
-@import "@fontsource-variable/inter";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-    --font-heading: var(--font-sans);
-    --font-sans: 'Inter Variable', sans-serif;
+    --font-heading: var(--font-mono);
     --font-mono: 'JetBrains Mono Variable', monospace;
     /* Same hue and saturation as the original sage green, darkened until
        white text on it clears WCAG AA for normal text (~5.2:1; it was
@@ -57,21 +55,21 @@
 }
 
 :root {
-    --background: #F7F8FA;
-    --foreground: #1F2430;
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.148 0.004 228.8);
     --card: oklch(1 0 0);
     --card-foreground: oklch(0.148 0.004 228.8);
     --popover: oklch(1 0 0);
     --popover-foreground: oklch(0.148 0.004 228.8);
-    --primary: #3730A3;
-    --primary-foreground: #FFFFFF;
+    --primary: oklch(0.508 0.118 165.612);
+    --primary-foreground: oklch(0.979 0.021 166.113);
     --secondary: oklch(0.967 0.001 286.375);
     --secondary-foreground: oklch(0.21 0.006 285.885);
     --muted: oklch(0.963 0.002 197.1);
-    --muted-foreground: #6B7280;
+    --muted-foreground: oklch(0.56 0.021 213.5);
     --accent: oklch(0.963 0.002 197.1);
     --accent-foreground: oklch(0.218 0.008 223.9);
-    --destructive: #E5484D;
+    --destructive: oklch(0.577 0.245 27.325);
     --border: oklch(0.925 0.005 214.3);
     --input: oklch(0.925 0.005 214.3);
     --ring: oklch(0.723 0.014 214.4);
@@ -136,9 +134,12 @@
     background: transparent;
     }
   body {
-    @apply text-foreground font-sans;
+    @apply text-foreground;
     }
   button:not(:disabled), [role="button"]:not(:disabled) {
     cursor: pointer;
+    }
+  html {
+    @apply font-mono;
     }
 }

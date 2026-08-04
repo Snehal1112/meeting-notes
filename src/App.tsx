@@ -71,7 +71,14 @@ async function animateResize(
 // config dialog's ability to grow the window taller than 300px.
 const PILL_SIZES: Record<"recording" | "processing", { width: number; height: number }> = {
   recording: { width: 224, height: 56 },
-  processing: { width: 260, height: 56 },
+  // Wider than the Recording pill: unlike the Recording pill's timer (always
+  // rendered font-mono regardless of the global body font), this pill's
+  // "choosing_provider" sub-branch (Select trigger + "Generate Summary"
+  // button) renders in the global body font. With that font reverted to
+  // JetBrains Mono (wider per-character than the Inter it was sized
+  // against), the old 260px budget was too tight once qualityWarning's icon
+  // was also present -- widened for headroom.
+  processing: { width: 300, height: 56 },
 };
 
 // Reads the window's actual current logical size, so the resize animation

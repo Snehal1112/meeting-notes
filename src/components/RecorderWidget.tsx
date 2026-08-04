@@ -807,7 +807,13 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
         </TabsContent>
       </Tabs>
       <Separator />
-      <div className="flex gap-2">
+      {/* flex-wrap: this row lives in a card whose width is fixed at 400px
+          (only height auto-grows, see useAutoResizeWindow in App.tsx) — three
+          buttons, including a dynamic-length "Regenerate with X" label, can
+          exceed that width. Wrapping to a second line costs nothing (the
+          window already grows for taller content) and is safer than relying
+          on exact text-width budgeting across every font/label combination. */}
+      <div className="flex flex-wrap gap-2">
         <Button
           variant="outline"
           size="sm"
