@@ -2,6 +2,34 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **PARTIAL COMPLETION — read before touching this area again.** Task 1 (the
+> height cap itself) shipped and works, including a follow-up fix for an
+> async cancellation race the final whole-branch review caught (commit
+> `badc0bc`, not written as a separate task below since it wasn't part of
+> the original plan). **Task 2, as designed and written below, does NOT
+> work — confirmed empirically, not just reasoned about.** The final
+> reviewer reproduced the exact DOM chain in headless Chrome and got
+> byte-identical layout measurements with and without Task 2's
+> `overflow-hidden` change. Root cause the design spec got wrong: in the
+> full-chrome (non-pill) state, `App.tsx`'s root container has **no height
+> constraint at all** (no `h-screen`, no max-height) — there is no bounded
+> space for anything downstream to ever shrink against, so
+> `overflow-hidden` on the wrapper has nothing to do. Worse: naively adding
+> a height constraint to the root breaks `useAutoResizeWindow`'s own
+> measurement in a new way — once the wrapper's `scrollHeight` reflects its
+> own clamped height instead of the true content height, the window could
+> never grow past its current size again. **Net effect of what's actually
+> shipped:** the window now correctly stops growing past the cap, but
+> content between the cap and the true content height is silently
+> unreachable — no scrollbar, since the global `overflow: hidden` safety
+> net (`src/index.css`) suppresses even a document-level scrollbar. This
+> was a conscious, user-approved trade-off (ship the cap now, fix scrolling
+> separately) — not a bug shipped by accident. **Task 2 needs a fresh
+> brainstorming → design → plan cycle that treats the height-constraint
+> propagation and the resize-hook's measurement strategy as one combined
+> problem, not a one-line CSS patch.** Do not re-attempt Task 2 as written
+> below.
+
 **Goal:** Cap the window's auto-resize height so it can never exceed 85% of the current monitor's available work area (falling back to a fixed 700px if the monitor can't be queried), and fix the one wrapper div that currently prevents the Done state's already-present internal scroll from activating once that cap is hit. See `docs/superpowers/specs/2026-08-04-capped-window-height-design.md` for the full design rationale.
 
 **Architecture:** `useAutoResizeWindow`'s `measure()` becomes async, querying Tauri's `currentMonitor()` API on every call and capping the computed height against its logical work-area height. A new Tauri capability permission (`core:window:allow-current-monitor`, verified against this project's own generated schema) is required for that API call to succeed at runtime. Separately, `App.tsx`'s wrapper div between the resized root and `RecorderWidget` gains `overflow-hidden` so the CSS flexbox "automatic minimum size" rule stops preventing it from shrinking below its content's natural height — this is what lets the cap actually cascade down into the already-correct `overflow-y-auto` Tabs panels instead of the content just silently overflowing.
@@ -18,7 +46,18 @@
 
 ---
 
-### Task 1: Add the screen-aware height cap to useAutoResizeWindow
+### Task 1: Add the screen-aware height cap to useAutoResizeWindow — DONE (commit `b810bf2`), plus a final-review fix for an async cancellation race (commit `badc0bc`)
+
+> **Deviation:** the final whole-branch review found that `measure()` becoming
+> `async` (to await `currentMonitor()`) opened a stale-write race —
+> `observer.disconnect()` only stops *future* callbacks, not one already
+> suspended at the `await` — reopening a bug class already fixed once
+> elsewhere in this repo (`App.tsx`'s `resizeRunRef`, `RecorderWidget.tsx`'s
+> `summarizeRunRef`). Fixed with the same pattern: a `cancelled` flag (set in
+> the effect cleanup) plus a `latestRun` counter (so an earlier-started,
+> later-resolving call can't overwrite a newer one even without a teardown).
+> A regression test proves a call that resolves after the hook is disabled
+> never calls `setSize()`. Re-reviewed clean.
 
 **Files:**
 - Modify: `src/hooks/useAutoResizeWindow.ts`
@@ -28,7 +67,7 @@
 **Interfaces:**
 - `useAutoResizeWindow`'s exported signature (`(ref, width, minHeight, enabled?)`) is unchanged — this task only changes its internal height calculation, not its public API. No other file calls this hook differently as a result of this task.
 
-- [ ] **Step 1: Add the new Tauri capability permission**
+- [x] **Step 1: Add the new Tauri capability permission**
 
 In `src-tauri/capabilities/default.json`, add `"core:window:allow-current-monitor"` to the `permissions` array. The file currently reads:
 
@@ -59,7 +98,7 @@ Change the `permissions` array to:
   ]
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Replace the entirety of `src/hooks/useAutoResizeWindow.test.tsx` with the following (this extends the existing `vi.mock` to include a mockable `currentMonitor`, updates the one existing test that becomes async as a result, and adds three new tests for the cap behavior — every other existing test is otherwise unchanged):
 
@@ -241,12 +280,12 @@ describe("useAutoResizeWindow", () => {
 });
 ```
 
-- [ ] **Step 3: Run the tests to verify the new/changed ones fail**
+- [x] **Step 3: Run the tests to verify the new/changed ones fail**
 
 Run: `npx vitest run src/hooks/useAutoResizeWindow.test.tsx --exclude "**/.claude/**"`
 Expected: the async-ified "measures and resizes the window while enabled" test and the three new cap tests fail (the hook doesn't call `currentMonitor()` yet, so the mock is never exercised and the height calculation doesn't cap); the other four pre-existing tests (disabled/disconnects/rebuilds/defaults-enabled) still pass, since they don't depend on the new behavior.
 
-- [ ] **Step 4: Add the height cap to useAutoResizeWindow.ts**
+- [x] **Step 4: Add the height cap to useAutoResizeWindow.ts**
 
 Replace the entirety of `src/hooks/useAutoResizeWindow.ts` with:
 
@@ -323,22 +362,22 @@ export function useAutoResizeWindow(
 }
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `npx vitest run src/hooks/useAutoResizeWindow.test.tsx --exclude "**/.claude/**"`
 Expected: all 8 tests pass.
 
-- [ ] **Step 6: Typecheck and full build**
+- [x] **Step 6: Typecheck and full build**
 
 Run: `bun run build`
 Expected: clean. If TypeScript complains about assigning an `async` function (`measure`, which returns `Promise<void>`) to `ResizeObserverCallback` (which expects a `void`-returning function), this is a known-safe pattern TypeScript's structural typing explicitly allows for void-returning function positions — do not add an unnecessary wrapper like `() => { void measure(); }` unless the compiler actually errors; only add it if `bun run build` genuinely fails on this line.
 
-- [ ] **Step 7: Run the full frontend test suite to confirm no regressions elsewhere**
+- [x] **Step 7: Run the full frontend test suite to confirm no regressions elsewhere**
 
 Run: `npx vitest run --exclude "**/.claude/**"`
 Expected: every test file passes, with 3 more passing tests than before this task — `useAutoResizeWindow.test.tsx` goes from 5 tests to 8 (the 5 pre-existing tests are all still present, one of them now `async`, plus 3 new cap-behavior tests).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/hooks/useAutoResizeWindow.ts src/hooks/useAutoResizeWindow.test.tsx src-tauri/capabilities/default.json
@@ -347,7 +386,18 @@ git commit -m "feat: cap auto-resize window height to the current monitor's work
 
 ---
 
-### Task 2: Fix the wrapper div so the cap cascades into working internal scroll
+### Task 2: Fix the wrapper div so the cap cascades into working internal scroll — steps executed (commit `b9989ea`), but confirmed NOT to achieve this task's goal — see the banner at the top of this document
+
+> **This task's code shipped, but does not do what it says.** The `overflow-hidden`
+> change below was applied exactly as written and passed its own task-scoped review —
+> but the final whole-branch reviewer proved empirically (headless Chrome, byte-identical
+> DOM measurements with and without the change) that it has zero effect, because the
+> premise in this task's own explanation ("this was the sole gap") is wrong: the
+> `App.tsx` root has no height constraint in the non-pill state at all, so nothing ever
+> reaches the point where `overflow-hidden` would matter. See the document-level banner
+> for the full explanation and what actually needs to happen instead. Steps below are
+> marked done in the sense that they were executed and committed, not in the sense that
+> they achieved the task's stated goal.
 
 **Files:**
 - Modify: `src/App.tsx`
@@ -355,7 +405,7 @@ git commit -m "feat: cap auto-resize window height to the current monitor's work
 **Interfaces:**
 - Consumes: nothing new from Task 1 — this task's fix is independent of Task 1's specific cap values, it just removes the CSS obstruction that would prevent ANY cap (of any value) from having a visible effect on the Done state's Tabs content.
 
-- [ ] **Step 1: Add `overflow-hidden` to the wrapper div**
+- [x] **Step 1: Add `overflow-hidden` to the wrapper div**
 
 In `src/App.tsx`, find this line (inside the full-chrome JSX, the wrapper between `TitleBar`/`ConfigDialog`/`ResumePrompt` and `<RecorderWidget>`):
 
@@ -371,23 +421,23 @@ Change it to:
 
 This is the only change in this task. Per the design spec: this wrapper currently has no `overflow`/`min-height` handling, so per the CSS flexbox "automatic minimum size" rule it resists shrinking below its content's natural size even once Task 1's cap makes the window genuinely shorter than the content wants — `overflow-hidden` is the standard fix (the same mechanism already relied on by `RecorderWidget.tsx`'s `Tabs` element, which already has `flex-1 overflow-hidden`, and by each `TabsContent` panel, which already has `overflow-y-auto flex-1`). No other element in the chain needs a change — this was the sole gap.
 
-- [ ] **Step 2: Typecheck and full build**
+- [x] **Step 2: Typecheck and full build**
 
 Run: `bun run build`
 Expected: clean (this is a className-only change, no logic).
 
-- [ ] **Step 3: Run the full frontend test suite to confirm no regressions**
+- [x] **Step 3: Run the full frontend test suite to confirm no regressions**
 
 Run: `npx vitest run --exclude "**/.claude/**"`
 Expected: every test file passes, same count as after Task 1 (no test in this repo currently asserts on this specific wrapper's className, confirmed by grep before writing this plan — this step exists to catch any *other* regression, not because a specific test targets this line).
 
-- [ ] **Step 4: Manual verification**
+- [ ] **Step 4: Manual verification — not done (no display/Tauri runtime), and per the banner above, would have caught this task's fix not actually working**
 
 Run: `bun run tauri dev` with a meeting that has a long transcript/summary (or temporarily lower `HEIGHT_CAP_FRACTION`/`FALLBACK_HEIGHT_CAP` in a local, uncommitted edit to force the cap to trigger on shorter content, for testing convenience — revert before committing if you do this).
 Expected: the window stops growing once it reaches roughly 85% of the screen's usable height; the Summary/Actions/Transcript tab content becomes internally scrollable (a visible scrollbar, mouse-wheel/trackpad scroll works) instead of the window continuing to grow past that point; the title bar remains reachable and the window remains draggable to another connected monitor if one is available to test with.
 If this cannot be run in the current environment (no display/Tauri runtime), say so explicitly in the task report rather than claiming it was checked — this is a known, standing limitation across this repo's UI work, not something to work around.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit — DONE (commit `b9989ea`)**
 
 ```bash
 git add src/App.tsx
