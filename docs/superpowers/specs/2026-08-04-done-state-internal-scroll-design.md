@@ -56,11 +56,15 @@ el.style.height = `${height}px`;
 This is a plain, JS-computed pixel value — never a viewport-relative unit — so there is
 no circular dependency: `total` is always sampled from the DOM in its natural state
 first, and the clamp is applied only as a downstream effect of a value already computed
-from that reading. On the *next* `measure()` call, `scrollHeight` continues to report
-each child's true content extent regardless of whatever height that same element
-currently has imposed on it — this is exactly the distinction between `scrollHeight` and
-`clientHeight`, and is why `total`'s calculation already reads children's `scrollHeight`
-rather than `el`'s own.
+from that reading. `scrollHeight` only reflects an element's true content extent when
+read while that element is *unconstrained*. Once a height is imposed on `el` and the
+flex/overflow chain beneath it (`h-full` → `flex-1 overflow-hidden` → `overflow-y-auto
+flex-1`) redistributes that height and converts overflow into internal scroll, an
+ancestor's own `scrollHeight` collapses to its allotted box instead of reporting the
+content's true size — reading it back in that state on the *next* `measure()` call would
+feed a shrunken number back in as `total`. This is why the implementation lifts the pin
+(clears `el.style.height`) before every measurement and restores it synchronously
+afterward, so `total` is always read from the DOM in its natural, unconstrained state.
 
 **Cleanup matters.** `App.tsx`'s root `<div>` is a single JSX element whose `ref`/
 `className` toggle via a ternary on `isPill` — React reconciles this as the *same* DOM
@@ -114,6 +118,10 @@ result once `total` exceeds the cap, which is exactly the scenario this fix targ
   already solves).
 - No change to when the window is allowed to grow vs. shrink — only whether the DOM
   inside it is ever told what its own real bound is.
+- No support for within-session regrowth: once the Done state's window height is capped,
+  switching tabs or regenerating a longer summary in the same session will not regrow the
+  window, since each tab now scrolls independently within whatever height was set on
+  Done-entry — an accepted, documented trade-off, not a regression to fix in this task.
 
 ## Testing
 

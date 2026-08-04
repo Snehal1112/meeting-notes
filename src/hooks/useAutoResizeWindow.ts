@@ -49,17 +49,25 @@ export function useAutoResizeWindow(
     const measure = async () => {
       const run = ++latestRun;
 
-      // el's own scrollHeight is unreliable here: it's a flex-col container
-      // with overflow-hidden, and its children (e.g. a scrollable panel) can
-      // themselves be clipped to whatever height the window currently is,
-      // understating how much content actually needs. Sum each direct
-      // child's natural scrollHeight instead -- that's the real total. This
-      // reading happens before any height is applied below, so it always
-      // reflects the DOM's natural, unconstrained size.
+      // Read scrollHeight with any previously-applied pin lifted first,
+      // then restore it immediately -- synchronously, so no frame is ever
+      // painted unpinned. Reading it WHILE pinned corrupts the signal:
+      // once a height is applied to `el`, the flex/overflow chain below it
+      // (App.tsx's wrapper -> RecorderWidget's h-full Done root -> Tabs'
+      // flex-1 overflow-hidden -> each TabsContent's overflow-y-auto
+      // flex-1) absorbs all of the content's overflow into its own
+      // internal scroll, so `el`'s children report their own *allotted*
+      // box size back as `scrollHeight`, not the content's true size.
+      // Reading that shrunken number back as `total` here would ratchet
+      // the window smaller by (2x the root's border width) on every single
+      // measurement, forever, instead of ever settling at the cap.
+      const previousHeight = el.style.height;
+      el.style.height = "";
       const total = Array.from(el.children).reduce(
         (sum, child) => sum + child.scrollHeight,
         0
       );
+      el.style.height = previousHeight;
 
       // Queried fresh on every measure() call (not cached across renders) so
       // the cap always reflects whichever monitor the window is currently
@@ -82,16 +90,12 @@ export function useAutoResizeWindow(
 
       // Gives the DOM an explicit, JS-computed bound equal to the same value
       // just sent to the OS window -- deliberately never a viewport-relative
-      // unit (100vh/h-screen), which would make `total` above circular (the
-      // content's own layout would depend on the window size this
-      // measurement is trying to compute). Plain pixels are safe here
-      // because `total` is always read from `scrollHeight`, which reports an
-      // element's true content extent regardless of whatever height that
-      // same element currently has imposed on it -- that's the whole
-      // difference between `scrollHeight` and `clientHeight`. This is what
-      // lets RecorderWidget.tsx's already-present `overflow-y-auto` Tabs
-      // content actually activate once content exceeds the cap, instead of
-      // silently overflowing past the window's visible edge.
+      // unit (100vh/h-screen), and deliberately applied only AFTER `total`
+      // was already read above with the pin lifted, so this write can never
+      // feed back into the next measurement's own reading of `total`. This
+      // is what lets RecorderWidget.tsx's already-present `overflow-y-auto`
+      // Tabs content actually activate once content exceeds the cap,
+      // instead of silently overflowing past the window's visible edge.
       el.style.height = `${height}px`;
     };
 

@@ -2,7 +2,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useAutoResizeWindow } from "./useAutoResizeWindow";
 
-const setSize = vi.fn(() => Promise.resolve());
+const setSize = vi.fn((_size: { width: number; height: number }) => Promise.resolve());
 const currentMonitor = vi.fn();
 
 vi.mock("@tauri-apps/api/window", () => ({
@@ -219,6 +219,41 @@ describe("useAutoResizeWindow", () => {
     FakeResizeObserver.instances[0]!.fire();
 
     await waitFor(() => expect(root.style.height).toBe("850px"));
+  });
+
+  // Regression test for the ratchet bug: a naive fix that reads
+  // scrollHeight WHILE a previous pin is still applied will see that pin's
+  // own (border-shrunk) value reflected back, and write an ever-smaller
+  // height on every subsequent measurement instead of holding steady at
+  // the cap. This models the real flex/overflow chain's behavior: once
+  // `root.style.height` is set, the observed child's own box (and
+  // therefore its scrollHeight) becomes exactly that pinned value minus a
+  // fixed 2px (the root's top+bottom border) -- unless the measurement
+  // code lifts the pin before reading, in which case this getter reports
+  // the true natural content height instead.
+  it("does not ratchet the height down across repeated measurements", async () => {
+    currentMonitor.mockResolvedValue(fakeMonitor(1000));
+    const NATURAL_HEIGHT = 5000; // far exceeds the 850px cap (1000 * 0.85)
+
+    Object.defineProperty(root.children[0]!, "scrollHeight", {
+      configurable: true,
+      get() {
+        return root.style.height ? parseInt(root.style.height, 10) - 2 : NATURAL_HEIGHT;
+      },
+    });
+
+    renderHook(() => useAutoResizeWindow(ref, 400, 300, true));
+
+    FakeResizeObserver.instances[0]!.fire();
+    await waitFor(() => expect(setSize).toHaveBeenCalledTimes(1));
+    const firstHeight = (setSize.mock.calls[0]![0] as { height: number }).height;
+
+    FakeResizeObserver.instances[0]!.fire();
+    await waitFor(() => expect(setSize).toHaveBeenCalledTimes(2));
+    const secondHeight = (setSize.mock.calls[1]![0] as { height: number }).height;
+
+    expect(firstHeight).toBe(850);
+    expect(secondHeight).toBe(firstHeight);
   });
 
   it("clears the explicit height when the hook becomes disabled", async () => {
