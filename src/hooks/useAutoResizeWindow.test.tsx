@@ -161,6 +161,31 @@ describe("useAutoResizeWindow", () => {
     );
   });
 
+  // Regression test for a stale-async-write bug: measure() is async (it
+  // awaits currentMonitor(), a real Tauri IPC round-trip), so it can still be
+  // suspended when the effect that started it is torn down. disconnect()ing
+  // the observer in cleanup does not stop an already-in-flight measure()
+  // call from resolving later and calling setSize() with a stale size.
+  it("does not resize after being disabled mid-measure", async () => {
+    let resolveMonitor: (m: null) => void;
+    currentMonitor.mockReturnValue(
+      new Promise((r) => {
+        resolveMonitor = r;
+      })
+    );
+    const { rerender } = renderHook(
+      ({ enabled }) => useAutoResizeWindow(ref, 400, 300, enabled),
+      { initialProps: { enabled: true } }
+    );
+
+    FakeResizeObserver.instances[0]!.fire(); // measure() suspends at the await
+    rerender({ enabled: false }); // cleanup runs
+    resolveMonitor!(null); // stale call resolves
+    await Promise.resolve();
+
+    expect(setSize).not.toHaveBeenCalled();
+  });
+
   it("is unaffected by the cap when content is shorter than it", async () => {
     currentMonitor.mockResolvedValue(fakeMonitor(1000));
     Object.defineProperty(root.children[0]!, "scrollHeight", { value: 500, configurable: true });

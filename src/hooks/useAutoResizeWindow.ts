@@ -35,7 +35,20 @@ export function useAutoResizeWindow(
     const el = ref.current;
     if (!el) return;
 
+    // measure() awaits a real Tauri IPC round-trip (currentMonitor()), so it
+    // can still be suspended when this effect run is torn down -- e.g. the
+    // widget leaves Idle/Done for the Recording/Processing pill mid-measure.
+    // `cancelled` stops a torn-down run from writing a stale size after the
+    // fact; `latestRun` stops an older in-flight measure() from clobbering a
+    // newer one if the ResizeObserver fires twice before the first resolves
+    // (out-of-order resolution). Both are needed -- they guard different
+    // failure modes.
+    let cancelled = false;
+    let latestRun = 0;
+
     const measure = async () => {
+      const run = ++latestRun;
+
       // el's own scrollHeight is unreliable here: it's a flex-col container
       // with overflow-hidden, and its children (e.g. a scrollable panel) can
       // themselves be clipped to whatever height the window currently is,
@@ -51,6 +64,11 @@ export function useAutoResizeWindow(
       // on, even if it was dragged to a different one since the last
       // content change.
       const monitor = await currentMonitor();
+
+      // This run was torn down or superseded while awaiting currentMonitor().
+      // Do not write a stale size.
+      if (cancelled || run !== latestRun) return;
+
       const heightCap = monitor
         ? monitor.workArea.size.toLogical(monitor.scaleFactor).height * HEIGHT_CAP_FRACTION
         : FALLBACK_HEIGHT_CAP;
@@ -65,6 +83,9 @@ export function useAutoResizeWindow(
     const children = Array.from(el.children);
     children.forEach((child) => observer.observe(child));
     observer.observe(el);
-    return () => observer.disconnect();
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+    };
   }, [ref, width, minHeight, enabled]);
 }
