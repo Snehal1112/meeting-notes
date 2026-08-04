@@ -8,6 +8,23 @@ interface WaveformProps {
   compact?: boolean;
 }
 
+// Eases a displayed value a `factor` fraction of the way toward `target` —
+// the standard exponential-smoothing technique audio visualizers use to
+// avoid snapping instantly to each new raw sample.
+export function easeTowards(current: number, target: number, factor: number): number {
+  return current + (target - current) * factor;
+}
+
+// Maps a 0-1 volume intensity to one of the waveform's three theme colors.
+// destructiveColor is a parameter (not hardcoded) because the draw loop
+// reads it live from the --destructive CSS custom property, which can
+// change with the theme.
+export function colorForIntensity(intensity: number, destructiveColor: string): string {
+  if (intensity < 0.15) return "hsl(220 9% 80%)";
+  if (intensity < 0.5) return "#F59E0B";
+  return destructiveColor;
+}
+
 export function Waveform({ active, compact = false }: WaveformProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | undefined>(undefined);
