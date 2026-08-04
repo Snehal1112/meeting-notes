@@ -53,7 +53,9 @@ export function useAutoResizeWindow(
       // with overflow-hidden, and its children (e.g. a scrollable panel) can
       // themselves be clipped to whatever height the window currently is,
       // understating how much content actually needs. Sum each direct
-      // child's natural scrollHeight instead -- that's the real total.
+      // child's natural scrollHeight instead -- that's the real total. This
+      // reading happens before any height is applied below, so it always
+      // reflects the DOM's natural, unconstrained size.
       const total = Array.from(el.children).reduce(
         (sum, child) => sum + child.scrollHeight,
         0
@@ -77,6 +79,20 @@ export function useAutoResizeWindow(
       getCurrentWindow()
         .setSize(new LogicalSize(width, height))
         .catch((err) => console.error("useAutoResizeWindow: setSize failed", err));
+
+      // Gives the DOM an explicit, JS-computed bound equal to the same value
+      // just sent to the OS window -- deliberately never a viewport-relative
+      // unit (100vh/h-screen), which would make `total` above circular (the
+      // content's own layout would depend on the window size this
+      // measurement is trying to compute). Plain pixels are safe here
+      // because `total` is always read from `scrollHeight`, which reports an
+      // element's true content extent regardless of whatever height that
+      // same element currently has imposed on it -- that's the whole
+      // difference between `scrollHeight` and `clientHeight`. This is what
+      // lets RecorderWidget.tsx's already-present `overflow-y-auto` Tabs
+      // content actually activate once content exceeds the cap, instead of
+      // silently overflowing past the window's visible edge.
+      el.style.height = `${height}px`;
     };
 
     const observer = new ResizeObserver(measure);
@@ -86,6 +102,13 @@ export function useAutoResizeWindow(
     return () => {
       cancelled = true;
       observer.disconnect();
+      // rootRef's div is reused (not remounted) across pill <-> full-chrome
+      // transitions in App.tsx -- the ref/className on that element merely
+      // toggle via a ternary. Without this reset, a height forced by a
+      // capped Done state would linger on the same DOM node and fight the
+      // pill's own `h-screen w-screen` sizing the next time this hook is
+      // re-enabled.
+      el.style.height = "";
     };
   }, [ref, width, minHeight, enabled]);
 }

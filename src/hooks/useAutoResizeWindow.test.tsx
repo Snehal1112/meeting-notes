@@ -197,4 +197,58 @@ describe("useAutoResizeWindow", () => {
       expect(setSize).toHaveBeenCalledWith(expect.objectContaining({ width: 400, height: 500 }))
     );
   });
+
+  it("sets an explicit pixel height on the root element after measuring", async () => {
+    currentMonitor.mockResolvedValue(fakeMonitor(1000));
+    Object.defineProperty(root.children[0]!, "scrollHeight", { value: 500, configurable: true });
+
+    renderHook(() => useAutoResizeWindow(ref, 400, 300, true));
+    FakeResizeObserver.instances[0]!.fire();
+
+    await waitFor(() => expect(root.style.height).toBe("500px"));
+  });
+
+  it("caps the root element's explicit height the same way it caps setSize", async () => {
+    currentMonitor.mockResolvedValue(fakeMonitor(1000));
+    // Content taller than the cap: make the single child's scrollHeight
+    // exceed 850 (1000 * 0.85) so the cap -- not the content height -- wins,
+    // exactly mirroring the existing "caps the height..." setSize test above.
+    Object.defineProperty(root.children[0]!, "scrollHeight", { value: 5000, configurable: true });
+
+    renderHook(() => useAutoResizeWindow(ref, 400, 300, true));
+    FakeResizeObserver.instances[0]!.fire();
+
+    await waitFor(() => expect(root.style.height).toBe("850px"));
+  });
+
+  it("clears the explicit height when the hook becomes disabled", async () => {
+    currentMonitor.mockResolvedValue(fakeMonitor(1000));
+    Object.defineProperty(root.children[0]!, "scrollHeight", { value: 500, configurable: true });
+
+    const { rerender } = renderHook(({ enabled }) => useAutoResizeWindow(ref, 400, 300, enabled), {
+      initialProps: { enabled: true },
+    });
+    FakeResizeObserver.instances[0]!.fire();
+    await waitFor(() => expect(root.style.height).toBe("500px"));
+
+    // Regression guard for App.tsx's pill <-> full-chrome transition: rootRef's
+    // div is reused (not remounted) across that transition, so a leftover
+    // forced height here would otherwise fight the pill's own h-screen sizing.
+    rerender({ enabled: false });
+
+    expect(root.style.height).toBe("");
+  });
+
+  it("clears the explicit height on unmount", async () => {
+    currentMonitor.mockResolvedValue(fakeMonitor(1000));
+    Object.defineProperty(root.children[0]!, "scrollHeight", { value: 500, configurable: true });
+
+    const { unmount } = renderHook(() => useAutoResizeWindow(ref, 400, 300, true));
+    FakeResizeObserver.instances[0]!.fire();
+    await waitFor(() => expect(root.style.height).toBe("500px"));
+
+    unmount();
+
+    expect(root.style.height).toBe("");
+  });
 });
