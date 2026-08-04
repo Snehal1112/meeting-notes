@@ -223,7 +223,7 @@ function App() {
         <ResumePrompt meetings={orphaned} onResume={handleResume} onDismiss={() => setOrphaned([])} />
       )}
       {(isPill || !showConfigDialog) && (
-        <div className={isPill ? undefined : "flex-1 p-4"}>
+        <div className={isPill ? undefined : "flex-1 p-4 overflow-hidden"}>
           <RecorderWidget resumeMeeting={resumeMeeting} onStateChange={setWidgetState} />
         </div>
       )}
