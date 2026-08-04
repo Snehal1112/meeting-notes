@@ -178,6 +178,50 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
     expect(recorderMountCount).toBe(1);
   });
 
+  // The pill's fixed size and useAutoResizeWindow's content measurement are
+  // two owners of the same OS window. The hook has to be switched off by its
+  // `enabled` argument while the pill owns sizing -- merely detaching the ref
+  // does not stop an already-created ResizeObserver, which then fights the
+  // pill's resize animation frame by frame and wins (see
+  // useAutoResizeWindow.test.tsx).
+  it("disables content-driven sizing while the chrome-less pill owns the window", async () => {
+    const { useAutoResizeWindow } = await import("@/hooks/useAutoResizeWindow");
+    render(<App />);
+    await screen.findByTestId("recorder");
+    expect(vi.mocked(useAutoResizeWindow)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      400,
+      300,
+      true
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "go-recording" }));
+    expect(vi.mocked(useAutoResizeWindow)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      400,
+      300,
+      false
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "go-processing" }));
+    expect(vi.mocked(useAutoResizeWindow)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      400,
+      300,
+      false
+    );
+
+    // Back out of the pill: the hook must be handed sizing again, or the
+    // window would stay stuck at the pill's 224x56 on the Done/Idle screen.
+    fireEvent.click(screen.getByRole("button", { name: "go-idle" }));
+    expect(vi.mocked(useAutoResizeWindow)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      400,
+      300,
+      true
+    );
+  });
+
   it("preserves the RecorderWidget instance across recording -> processing -> idle", async () => {
     render(<App />);
     const beforeId = (await screen.findByTestId("recorder-mount-id")).textContent;

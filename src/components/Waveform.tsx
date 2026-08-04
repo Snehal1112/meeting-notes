@@ -61,9 +61,16 @@ export function Waveform({ active, compact = false }: WaveformProps) {
           // --destructive resolves to a plain CSS color value already
           // usable as-is -- unlike the old HSL-triplet convention, it must
           // NOT be wrapped in hsl(...), which would be an invalid color.
-          const destructiveColor = getComputedStyle(document.documentElement)
-            .getPropertyValue("--destructive")
-            .trim();
+          //
+          // The read can come back empty (the property not applied yet on the
+          // first frames, or a stylesheet that has not landed). Assigning ""
+          // to fillStyle is silently ignored by the Canvas API, which would
+          // leave the loudest bars painted in whatever fillStyle was last set
+          // -- black on the very first frame -- so fall back to the token's
+          // own light-theme value.
+          const destructiveColor =
+            getComputedStyle(document.documentElement).getPropertyValue("--destructive").trim() ||
+            "#E5484D";
           dataArray.forEach((value, i) => {
             const intensity = value / 255;
             const barHeight = Math.max(minBarHeight, intensity * canvas.height);

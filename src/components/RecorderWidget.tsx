@@ -20,6 +20,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ProviderPicker, type ProviderName } from "@/components/ProviderPicker";
+import { startWindowDrag } from "@/lib/drag";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Mic, MicOff, Square, AlertTriangle } from "lucide-react";
 
@@ -519,6 +520,11 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
     return (
       <div
         data-tauri-drag-region
+        // There is no title bar in the pill states, so the pill itself is the
+        // only drag surface -- and data-tauri-drag-region alone is unreliable
+        // under WebKitGTK, this project's primary platform. requireSelfTarget
+        // keeps the fallback from swallowing presses on the Stop button.
+        onMouseDown={(e) => startWindowDrag(e, { requireSelfTarget: true })}
         className="h-full w-full flex items-center justify-center gap-2.5 bg-background border rounded-full pl-3.5 pr-2 py-2 shadow-sm"
       >
         <span className="h-1.5 w-1.5 rounded-full bg-destructive animate-pulse flex-shrink-0" />
@@ -554,6 +560,11 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
     return (
       <div
         data-tauri-drag-region
+        // Same reasoning as the Recording pill above. requireSelfTarget
+        // matters more here: this pill can hold a Retry button, a provider
+        // Select and a Generate Summary button, all of which would otherwise
+        // have their mousedown turned into a window drag on the way up.
+        onMouseDown={(e) => startWindowDrag(e, { requireSelfTarget: true })}
         className="h-full w-full flex items-center justify-center gap-2 bg-background border rounded-full px-3 py-2 shadow-sm text-sm text-muted-foreground"
       >
         {qualityWarning && (
@@ -601,7 +612,14 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
               value={selectedProvider ?? undefined}
               onValueChange={(next) => setSelectedProvider(next as ProviderKind)}
             >
-              <SelectTrigger aria-label="Summary provider" className="h-6 text-xs w-[88px] flex-shrink-0">
+              {/* Height comes from the size prop, not a className:
+                  SelectTrigger's own data-[size=*] rules outrank a plain
+                  h-* utility, so an override there is silently dropped. */}
+              <SelectTrigger
+                size="sm"
+                aria-label="Summary provider"
+                className="text-xs w-[88px] flex-shrink-0"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -665,7 +683,18 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
             <div className="flex min-w-0 items-center gap-1.5">
               <div className="flex -space-x-2 flex-shrink-0">
                 {summaryResult.attendees.map((name, i) => (
-                  <Avatar key={i} title={name} className="h-6 w-6 border-2 border-background">
+                  // role="img" + aria-label rather than a bare title: the
+                  // visible content is only the initials, and title alone on a
+                  // non-interactive element has unreliable screen-reader
+                  // support. Matches the micOnlyWarning/qualityWarning
+                  // indicators above; title stays for the hover tooltip.
+                  <Avatar
+                    key={i}
+                    role="img"
+                    aria-label={name}
+                    title={name}
+                    className="h-6 w-6 border-2 border-background"
+                  >
                     <AvatarFallback>{initials(name)}</AvatarFallback>
                   </Avatar>
                 ))}

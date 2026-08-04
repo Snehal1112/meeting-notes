@@ -33,9 +33,14 @@ export function MeetingTypePicker({ value, onChange, disabled }: MeetingTypePick
       onValueChange={(next) => onChange(next as MeetingType)}
       disabled={disabled}
     >
+      {/* Height comes from the size prop: SelectTrigger's own data-[size=*]
+          rules outrank a plain h-* utility in the className, so a height
+          override there never takes effect. "default" is what this pill has
+          always actually rendered at. */}
       <SelectTrigger
+        size="default"
         aria-label="Meeting type"
-        className="w-fit gap-1.5 h-8 rounded-full text-xs border-dashed"
+        className="w-fit gap-1.5 rounded-full text-xs border-dashed"
       >
         {SelectedIcon && <SelectedIcon className="text-muted-foreground" />}
         <SelectValue />

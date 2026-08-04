@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import type { AppConfig } from "@/lib/config";
 
 export type ProviderName = "ollama" | "claude";
@@ -33,23 +34,58 @@ export function ProviderPicker({ config, onChange }: ProviderPickerProps) {
     { value: "claude", label: "Claude", ready: claudeReady, reason: "no API key set" },
   ];
 
+  const unavailable = options.filter((option) => !option.ready);
+
+  // A segmented pill group rather than native radio inputs, so this sits in
+  // the same visual language as the dashed-border MeetingTypePicker directly
+  // above it in the idle state. The semantics are still a radio group
+  // (role="radiogroup" / role="radio" + aria-checked), so keyboard and
+  // screen-reader users get the same single-choice affordance a native
+  // <input type="radio"> group gave them.
   return (
-    <div className="flex items-center gap-3 text-xs text-muted-foreground">
-      <span>Summarize with:</span>
-      {options.map((option) => (
-        <label key={option.value} className="flex items-center gap-1">
-          <input
-            type="radio"
-            name="summary-provider"
-            value={option.value}
-            checked={selected === option.value}
-            disabled={!option.ready}
-            onChange={() => onChange(option.value)}
-          />
-          <span>{option.label}</span>
-          {!option.ready && <span>({option.reason})</span>}
-        </label>
-      ))}
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+          Summarize with
+        </span>
+        <div
+          role="radiogroup"
+          aria-label="Summary provider"
+          className="flex w-fit items-center gap-0.5 rounded-full border border-dashed p-0.5"
+        >
+          {options.map((option) => {
+            const isSelected = selected === option.value;
+            return (
+              <Button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={isSelected}
+                disabled={!option.ready}
+                variant={isSelected ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => onChange(option.value)}
+                className={
+                  isSelected
+                    ? "rounded-full px-2.5 text-xs"
+                    : "rounded-full px-2.5 text-xs text-muted-foreground"
+                }
+              >
+                {option.label}
+              </Button>
+            );
+          })}
+        </div>
+      </div>
+      {unavailable.length > 0 && (
+        // Offering a choice that is guaranteed to fail is worse than not
+        // offering it, so an unconfigured provider stays disabled above and
+        // says why here -- one caption line rather than a parenthetical on
+        // each pill, which would blow out the group's width.
+        <span className="text-xs text-muted-foreground">
+          {unavailable.map((option) => `${option.label}: ${option.reason}`).join(" · ")}
+        </span>
+      )}
     </div>
   );
 }

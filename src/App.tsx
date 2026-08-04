@@ -25,9 +25,16 @@ function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
 }
 
+// `isCancelled` is re-checked on every frame, before writing a size and before
+// scheduling the next one, so an abandoned animation stops on its very next
+// frame instead of running to completion. Without it a fast state change
+// (recording -> processing inside the 180ms window, or handleStop failing
+// straight back to idle) would leave two animations writing conflicting sizes
+// to the same window at animation-frame rate.
 async function animateResize(
   from: { width: number; height: number },
   to: { width: number; height: number },
+  isCancelled: () => boolean = () => false,
   durationMs = 180
 ) {
   const win = getCurrentWindow();
@@ -35,6 +42,10 @@ async function animateResize(
 
   return new Promise<void>((resolve) => {
     function step(now: number) {
+      if (isCancelled()) {
+        resolve();
+        return;
+      }
       const elapsed = now - start;
       const t = Math.min(elapsed / durationMs, 1);
       const eased = easeOutCubic(t);
@@ -43,7 +54,7 @@ async function animateResize(
       win
         .setSize(new LogicalSize(width, height))
         .catch((err) => console.error("animateResize: setSize failed", err));
-      if (t < 1) {
+      if (t < 1 && !isCancelled()) {
         requestAnimationFrame(step);
       } else {
         resolve();
@@ -83,24 +94,41 @@ function App() {
   const [resumeMeeting, setResumeMeeting] = useState<MeetingMeta | null>(null);
   const [widgetState, setWidgetState] = useState<WidgetState>("idle");
   const rootRef = useRef<HTMLDivElement>(null);
-  // Only actually resizes anything while the full-chrome branch below is
-  // mounted -- ref.current is null while the chrome-less pill branch is
-  // rendered instead, and the hook no-ops safely on a null ref.
-  useAutoResizeWindow(rootRef, 400, 300);
+  // Generation counter for the pill resize animation, mirroring
+  // RecorderWidget's summarizeRunRef: bumped whenever the widget state
+  // changes, so any animation still in flight for the previous state stops
+  // writing sizes on its next frame rather than fighting the current one.
+  const resizeRunRef = useRef(0);
+  // Which of the two sizing owners is active. Recording and Processing are
+  // fixed-size pills (PILL_SIZES below); Idle and Done size themselves from
+  // their content. Declared before the hooks that depend on it so both can
+  // key off the same value.
+  const isPill = widgetState === "recording" || widgetState === "processing";
+  // Switched off entirely while the pill owns the window size. Detaching
+  // rootRef is not sufficient -- see the comment on useAutoResizeWindow for
+  // why an already-created ResizeObserver keeps firing regardless, and would
+  // pull the window back to 400x300 mid-animation.
+  useAutoResizeWindow(rootRef, 400, 300, !isPill);
 
   // Drives the pill's own size during Recording/Processing only. Idle/Done
   // intentionally do not run this -- see PILL_SIZES above.
   useEffect(() => {
-    if (widgetState !== "recording" && widgetState !== "processing") return;
-    let cancelled = false;
+    if (widgetState !== "recording" && widgetState !== "processing") {
+      // Leaving pill mode: invalidate any in-flight animation so it stops
+      // resizing a window that useAutoResizeWindow now owns again.
+      resizeRunRef.current++;
+      return;
+    }
+    const run = ++resizeRunRef.current;
+    const isCancelled = () => resizeRunRef.current !== run;
     const targetSize = PILL_SIZES[widgetState];
     (async () => {
       const from = await currentWindowSize().catch((err) => {
         console.error("Could not read current window size for resize animation:", err);
         return targetSize;
       });
-      if (cancelled) return;
-      await animateResize(from, targetSize);
+      if (isCancelled()) return;
+      await animateResize(from, targetSize, isCancelled);
       // animateResize itself calls getCurrentWindow(), which throws
       // synchronously outside of a real Tauri runtime (e.g. jsdom in
       // tests) -- caught here so a resize failure never crashes the
@@ -108,7 +136,7 @@ function App() {
       // this file being logged rather than left to bubble up.
     })().catch((err) => console.error("Pill resize animation failed:", err));
     return () => {
-      cancelled = true;
+      resizeRunRef.current++;
     };
   }, [widgetState]);
 
@@ -161,8 +189,8 @@ function App() {
   // instance. That would drop currentMeetingRef, the elapsed-time timer, and
   // the live onTranscriptionComplete listener right as a recording starts or
   // transcription is in flight -- see the remount-detection test in
-  // App.test.tsx for the regression this guards against.
-  const isPill = widgetState === "recording" || widgetState === "processing";
+  // App.test.tsx for the regression this guards against. (isPill itself is
+  // declared up with the sizing hooks above, which key off the same value.)
 
   return (
     <div
@@ -170,7 +198,10 @@ function App() {
       className={
         isPill
           ? "h-screen w-screen flex items-center justify-center bg-transparent"
-          : "min-h-[300px] flex flex-col rounded-lg overflow-hidden border bg-background"
+          : // shadow-widget is the design-token elevation that lifts the
+            // full-chrome container off the transparent OS window; the pill
+            // carries its own smaller shadow-sm instead.
+            "min-h-[300px] flex flex-col rounded-lg overflow-hidden border shadow-widget bg-background"
       }
     >
       {!isPill && <TitleBar />}

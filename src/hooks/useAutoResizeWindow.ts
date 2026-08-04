@@ -5,8 +5,25 @@ import { LogicalSize } from "@tauri-apps/api/dpi";
 // Resizes the OS window to match the content's natural height, so panels
 // taller than the widget's default 300px (e.g. the config panel) grow the
 // window instead of scrolling internally.
-export function useAutoResizeWindow(ref: RefObject<HTMLElement | null>, width: number, minHeight: number) {
+//
+// `enabled` is a real dependency of the effect, not a convenience flag: the
+// caller needs to be able to switch this measurement off entirely while
+// something else owns the window size (App.tsx's Recording/Processing pill).
+// Detaching the ref is not enough to do that. Once the ResizeObserver below
+// exists it keeps observing the elements it was handed, whatever `ref.current`
+// later becomes, so every step of the pill's resize animation would change the
+// observed content box, re-fire measure(), and set the window straight back to
+// `width` x content height. Turning `enabled` off tears the observer down;
+// turning it back on re-creates it, and ResizeObserver.observe() fires an
+// initial callback that re-measures the content immediately.
+export function useAutoResizeWindow(
+  ref: RefObject<HTMLElement | null>,
+  width: number,
+  minHeight: number,
+  enabled = true
+) {
   useEffect(() => {
+    if (!enabled) return;
     const el = ref.current;
     if (!el) return;
 
@@ -31,5 +48,5 @@ export function useAutoResizeWindow(ref: RefObject<HTMLElement | null>, width: n
     children.forEach((child) => observer.observe(child));
     observer.observe(el);
     return () => observer.disconnect();
-  }, [ref, width, minHeight]);
+  }, [ref, width, minHeight, enabled]);
 }

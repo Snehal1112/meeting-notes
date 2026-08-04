@@ -114,6 +114,56 @@ describe("RecorderWidget recording state", () => {
   });
 });
 
+// App.tsx decides the entire window shape -- chrome vs. chrome-less pill, and
+// which sizing owner runs -- purely from this callback (see App.test.tsx).
+// Every other test of that wiring goes through a *mocked* RecorderWidget, so
+// nothing else proves the real component actually reports its transitions.
+describe("RecorderWidget onStateChange reporting", () => {
+  it("reports every state it moves through, in order", async () => {
+    const onStateChange = vi.fn();
+    render(<RecorderWidget onStateChange={onStateChange} />);
+
+    // Reported on mount, before anything happens: App needs the initial
+    // value to pick a starting window shape.
+    await vi.waitFor(() => expect(onStateChange).toHaveBeenCalledWith("idle"));
+
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    await screen.findByRole("button", { name: /stop recording/i });
+    await vi.waitFor(() => expect(onStateChange).toHaveBeenCalledWith("recording"));
+
+    fireEvent.click(screen.getByRole("button", { name: /stop recording/i }));
+    await vi.waitFor(() => expect(onStateChange).toHaveBeenCalledWith("processing"));
+
+    // Order matters as much as membership: App animates the window between
+    // fixed pill sizes on these transitions, so "processing" arriving before
+    // "recording" would drive the wrong animation.
+    const reported = onStateChange.mock.calls.map(([state]) => state);
+    expect(reported.filter((state, i) => state !== reported[i - 1])).toEqual([
+      "idle",
+      "recording",
+      "processing",
+    ]);
+  });
+
+  it("reports the return to idle when a stop failure bounces the widget back", async () => {
+    const { stopRecording } = await import("@/lib/recording");
+    vi.mocked(stopRecording).mockRejectedValueOnce(new Error("no active recording"));
+    const onStateChange = vi.fn();
+    render(<RecorderWidget onStateChange={onStateChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+    await screen.findByRole("alert");
+
+    // stopRecording rejecting never reaches setState("processing"); the
+    // catch sends the widget straight back to "idle". App has to hear that
+    // or the window stays stuck at the recording pill's size.
+    const reported = onStateChange.mock.calls.map(([state]) => state);
+    expect(reported[reported.length - 1]).toBe("idle");
+    expect(reported).toContain("recording");
+  });
+});
+
 describe("RecorderWidget error handling", () => {
   it("stays on idle and shows an error when startRecording rejects", async () => {
     const { startRecording } = await import("@/lib/recording");
