@@ -29,3 +29,6 @@ __pycache__/
 
 # Rust workspace build output
 /target/
+
+# Superpowers scratch state (SDD workspaces, brainstorm mockups)
+.superpowers/
