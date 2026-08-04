@@ -7,6 +7,20 @@ describe("Waveform", () => {
     const { container } = render(<Waveform active={false} />);
     expect(container.querySelector("canvas")).toBeInTheDocument();
   });
+
+  it("renders the full (non-compact) variant at its configured canvas size", () => {
+    const { container } = render(<Waveform active={false} compact={false} />);
+    const canvas = container.querySelector("canvas");
+    expect(canvas).toHaveAttribute("width", "320");
+    expect(canvas).toHaveAttribute("height", "60");
+  });
+
+  it("renders the compact variant at its configured canvas size", () => {
+    const { container } = render(<Waveform active={false} compact />);
+    const canvas = container.querySelector("canvas");
+    expect(canvas).toHaveAttribute("width", "90");
+    expect(canvas).toHaveAttribute("height", "20");
+  });
 });
 
 describe("easeTowards", () => {

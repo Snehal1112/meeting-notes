@@ -56,6 +56,13 @@ export function Waveform({ active, compact = false }: WaveformProps) {
         analyser.fftSize = fftSize;
         source.connect(analyser);
         const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        // Per-bar smoothed intensity, eased toward the raw reading each
+        // frame by easeTowards (see below) -- this is what makes the bars
+        // glide instead of snapping to each new sample. Lives for the
+        // lifetime of this effect run (same as dataArray above), not in a
+        // ref: draw() closes over it directly.
+        const displayed = new Float32Array(analyser.frequencyBinCount);
+        const SMOOTHING_FACTOR = 0.35;
 
         // Check if effect was cancelled before starting draw loop.
         if (cancelled) {
@@ -81,23 +88,26 @@ export function Waveform({ active, compact = false }: WaveformProps) {
           //
           // The read can come back empty (the property not applied yet on the
           // first frames, or a stylesheet that has not landed). Assigning ""
-          // to fillStyle is silently ignored by the Canvas API, which would
-          // leave the loudest bars painted in whatever fillStyle was last set
+          // to strokeStyle is silently ignored by the Canvas API, which would
+          // leave the loudest bars painted in whatever strokeStyle was last set
           // -- black on the very first frame -- so fall back to the token's
-          // own light-theme value.
+          // own current light-theme value.
           const destructiveColor =
             getComputedStyle(document.documentElement).getPropertyValue("--destructive").trim() ||
-            "#E5484D";
+            "oklch(0.577 0.245 27.325)";
+          const centerY = canvas.height / 2;
           dataArray.forEach((value, i) => {
-            const intensity = value / 255;
-            const barHeight = Math.max(minBarHeight, intensity * canvas.height);
-            ctx.fillStyle =
-              intensity < 0.15 ? "hsl(220 9% 80%)" : intensity < 0.5 ? "#F59E0B" : destructiveColor;
-            ctx.beginPath();
+            const target = value / 255;
+            displayed[i] = easeTowards(displayed[i], target, SMOOTHING_FACTOR);
+            const barHeight = Math.max(minBarHeight, displayed[i] * canvas.height);
             const x = i * barWidth + barWidth / 2;
-            const y = canvas.height / 2;
-            ctx.arc(x, y, barHeight / 2, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(x, centerY - barHeight / 2);
+            ctx.lineTo(x, centerY + barHeight / 2);
+            ctx.lineWidth = barWidth * 0.6;
+            ctx.lineCap = "round";
+            ctx.strokeStyle = colorForIntensity(displayed[i], destructiveColor);
+            ctx.stroke();
           });
           rafRef.current = requestAnimationFrame(draw);
         };
