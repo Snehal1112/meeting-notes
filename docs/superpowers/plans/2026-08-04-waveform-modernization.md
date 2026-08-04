@@ -18,7 +18,7 @@
 
 ---
 
-### Task 1: Extract and test the two pure helper functions
+### Task 1: Extract and test the two pure helper functions — DONE (commit `6e030aa`)
 
 **Files:**
 - Modify: `src/components/Waveform.tsx` (add two exported functions; component body unchanged in this task)
@@ -28,7 +28,7 @@
 - Produces: `export function easeTowards(current: number, target: number, factor: number): number` — moves `current` a `factor` fraction of the way toward `target`. Task 2 calls this once per bar, per frame.
 - Produces: `export function colorForIntensity(intensity: number, destructiveColor: string): string` — maps a 0-1 intensity to one of the three theme colors. `destructiveColor` is passed in because it's read live from CSS at draw time, not hardcoded. Task 2 calls this once per bar, per frame.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to the top of `src/components/Waveform.test.tsx` (the existing `import` and first `describe` block stay as-is; add these alongside them):
 
@@ -84,12 +84,12 @@ describe("colorForIntensity", () => {
 
 This file replaces the entirety of the current `src/components/Waveform.test.tsx` (the existing single test is preserved above, just with the import line extended).
 
-- [ ] **Step 2: Run the tests to verify the new ones fail**
+- [x] **Step 2: Run the tests to verify the new ones fail**
 
 Run: `npx vitest run src/components/Waveform.test.tsx`
 Expected: the `Waveform` describe block's test still passes; every test in `easeTowards` and `colorForIntensity` fails with an error resolving to something like `"easeTowards is not a function"` / `"colorForIntensity is not a function"`, since neither is exported from `Waveform.tsx` yet.
 
-- [ ] **Step 3: Add the two exported functions to Waveform.tsx**
+- [x] **Step 3: Add the two exported functions to Waveform.tsx**
 
 Add these two functions to `src/components/Waveform.tsx`, above the `Waveform` component's own declaration (i.e., after the `WaveformProps` interface, before `export function Waveform(...)`):
 
@@ -114,17 +114,17 @@ export function colorForIntensity(intensity: number, destructiveColor: string): 
 
 Do not change anything else in the file in this task — the component's own draw loop still uses its old inline logic; Task 2 wires these functions in.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run src/components/Waveform.test.tsx`
 Expected: all tests pass (1 in `Waveform`, 4 in `easeTowards`, 3 in `colorForIntensity`).
 
-- [ ] **Step 5: Typecheck**
+- [x] **Step 5: Typecheck**
 
 Run: `bun run build`
 Expected: clean (tsc + vite build, no errors). The two new exports are unused by the component itself yet, which is not a TypeScript error (unused *exports* are fine; only unused *locals/parameters* would fail this repo's `noUnusedLocals`/`noUnusedParameters` strictness, and these are exported, not local).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/components/Waveform.tsx src/components/Waveform.test.tsx
@@ -133,7 +133,7 @@ git commit -m "feat: extract testable easeTowards and colorForIntensity helpers 
 
 ---
 
-### Task 2: Wire rounded, eased-motion bars into the draw loop
+### Task 2: Wire rounded, eased-motion bars into the draw loop — DONE (commit `dc52620`), plus a final-review fix wave (commit `7c04095`)
 
 **Files:**
 - Modify: `src/components/Waveform.tsx`
@@ -142,7 +142,23 @@ git commit -m "feat: extract testable easeTowards and colorForIntensity helpers 
 **Interfaces:**
 - Consumes: `easeTowards(current, target, factor)` and `colorForIntensity(intensity, destructiveColor)` from Task 1 (both already exported from this same file — call them directly, no import needed).
 
-- [ ] **Step 1: Write the failing tests**
+> **Deviation (commit `7c04095`):** the final whole-branch review (run after both tasks
+> shipped as written above) found that nothing tested the draw loop actually *uses*
+> `easeTowards`/`colorForIntensity` — a full revert of the smoothing line would have
+> passed every test in this plan unchanged. It also found that round bar caps clip flat
+> at high volume (a `barHeight` reaching `canvas.height` leaves no room for the cap's
+> `lineWidth / 2` overhang) and that `lineWidth`/`lineCap` were being reassigned
+> redundantly inside the per-bar loop despite never varying between bars. One fix wave
+> addressed all three: a new `describe("Waveform draw loop", ...)` test in
+> `Waveform.test.tsx` hand-mocks the 2D canvas context, `getUserMedia`, and
+> `AudioContext` to drive one real frame and assert bars-per-bin, the round line cap, and
+> — the key regression guard — that the first frame's `strokeStyle` is the eased mid-tier
+> amber rather than the raw/red color a smoothing regression would produce;
+> `barHeight`'s formula gained a `- barWidth * 0.6` cap-overhang budget; and
+> `lineWidth`/`lineCap` were hoisted above `dataArray.forEach`. Re-reviewed clean, no new
+> breakage.
+
+- [x] **Step 1: Write the failing tests**
 
 Add these two tests to the existing `describe("Waveform", ...)` block in `src/components/Waveform.test.tsx` (alongside the existing "renders a canvas element" test):
 
@@ -162,12 +178,12 @@ Add these two tests to the existing `describe("Waveform", ...)` block in `src/co
   });
 ```
 
-- [ ] **Step 2: Run the tests to verify current state**
+- [x] **Step 2: Run the tests to verify current state**
 
 Run: `npx vitest run src/components/Waveform.test.tsx`
 Expected: these two new tests already PASS (the canvas `width`/`height` attributes are unaffected by this task's draw-loop changes — this step confirms the starting baseline, not a red-to-green cycle; the actual behavior change in this task, the drawing code, cannot be asserted on in jsdom, as explained in the design spec).
 
-- [ ] **Step 3: Replace the draw loop's dot-fill rendering with bar strokes**
+- [x] **Step 3: Replace the draw loop's dot-fill rendering with bar strokes**
 
 In `src/components/Waveform.tsx`, inside the `Waveform` component's `useEffect`, replace the whole `setup` function's body from `const dataArray = ...` through the end of the `draw` function definition with:
 
@@ -233,27 +249,27 @@ In `src/components/Waveform.tsx`, inside the `Waveform` component's `useEffect`,
 
 This replaces the old block that declared `dataArray` once (no `displayed` array), then had the cancellation check, then a `draw` function using `ctx.fillStyle`/`ctx.beginPath()`/`ctx.arc(x, y, barHeight / 2, 0, Math.PI * 2)`/`ctx.fill()` per bin. Everything outside this block (the `getUserMedia` call above it, the `catch`/cleanup below it, the component's props/return statement) is unchanged.
 
-- [ ] **Step 4: Run the tests to verify they still pass**
+- [x] **Step 4: Run the tests to verify they still pass**
 
 Run: `npx vitest run src/components/Waveform.test.tsx`
 Expected: all 10 tests pass across the file's three `describe` blocks (3 in `Waveform` — the original canvas-renders test plus this task's 2 new size tests, 4 in `easeTowards`, 3 in `colorForIntensity`, both from Task 1). The point is zero failures; if the actual count in the file differs from 10, trust the file over this number.
 
-- [ ] **Step 5: Typecheck and full build**
+- [x] **Step 5: Typecheck and full build**
 
 Run: `bun run build`
 Expected: clean.
 
-- [ ] **Step 6: Run the full frontend test suite to confirm no regressions elsewhere**
+- [x] **Step 6: Run the full frontend test suite to confirm no regressions elsewhere**
 
 Run: `npx vitest run --exclude "**/.claude/**"`
 Expected: every test file passes, with 9 more passing tests total than before this plan started (7 added to `Waveform.test.tsx` in Task 1, 2 more added in this task's Step 1) — zero failures anywhere else in the suite.
 
-- [ ] **Step 7: Manual verification**
+- [x] **Step 7: Manual verification — not done, no display/Tauri runtime in the implementing environment (standing limitation across this repo's UI work)**
 
 Run: `bun run tauri dev`, start a recording, speak into the mic.
 Expected: the Recording pill's waveform shows rounded bars (not circles) that glide smoothly between heights rather than snapping frame-to-frame, with the same three-tier color behavior as before (calm gray at low volume, amber at moderate volume, red at loud volume). If this cannot be run in the current environment (no display/Tauri runtime), say so explicitly in the task report rather than claiming it was checked — this is a known, standing limitation across this repo's UI work, not something to work around.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/components/Waveform.tsx src/components/Waveform.test.tsx
