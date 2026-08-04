@@ -132,6 +132,14 @@
        container shows real rounded corners; body must not paint over that
        with an opaque rectangle. */
     background: transparent;
+    /* This is a small, borderless, chrome-less floating widget -- there is
+       no page to scroll. Without this, any descendant that overflows its
+       container by even a fraction of a pixel makes the native webview
+       show a real scrollbar and lets the unclipped content peek through
+       instead of being clipped, which looks identical to a broken
+       text-overflow/truncate even when the truncate CSS is applied
+       correctly on the element itself. */
+    overflow: hidden;
     }
   body {
     @apply text-foreground;

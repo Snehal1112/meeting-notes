@@ -78,7 +78,11 @@ const PILL_SIZES: Record<"recording" | "processing", { width: number; height: nu
   // JetBrains Mono (wider per-character than the Inter it was sized
   // against), the old 260px budget was too tight once qualityWarning's icon
   // was also present -- widened for headroom.
-  processing: { width: 300, height: 56 },
+  // Height is taller than the Recording pill's 56px: the "summarizing"
+  // sub-status's explanatory sentence now wraps to 2 lines instead of being
+  // truncated to 1 (see RecorderWidget.tsx), and needs the extra vertical
+  // room to avoid trading a horizontal overflow bug for a vertical one.
+  processing: { width: 300, height: 64 },
 };
 
 // Reads the window's actual current logical size, so the resize animation

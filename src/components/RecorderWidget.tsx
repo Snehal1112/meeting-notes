@@ -647,7 +647,13 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
                 {processingStatus === "transcribing" ? "Transcribing…" : "Generating summary…"}
               </span>
               {processingStatus === "summarizing" && (
-                <span className="text-[9px] truncate">
+                // Wrapped, not truncated: this sentence is long enough that
+                // ellipsis-truncating it loses real information, and wrapping
+                // to 2 lines can never overflow the pill horizontally no
+                // matter how the flex/min-width chain above it resolves --
+                // unlike single-line truncate, which depends on every
+                // ancestor computing a definite width correctly.
+                <span className="text-[9px] whitespace-normal">
                   Long meetings are summarized in several passes — this may take a few minutes.
                 </span>
               )}
