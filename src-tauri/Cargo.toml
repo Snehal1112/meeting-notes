@@ -35,3 +35,6 @@ meeting-notes-storage = { path = "../crates/meeting-notes-storage" }
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
 
+[dev-dependencies]
+hound = "3.5.1"
+

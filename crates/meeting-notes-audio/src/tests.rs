@@ -338,6 +338,98 @@ fn finalize_output_falls_back_to_mic_only_on_mix_failure() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Normal, non-interrupted case: `final_output_path` already exists (a
+/// completed recording), so there is nothing to recover -- must be a no-op
+/// that leaves the existing file untouched, not an error.
+#[test]
+fn recover_interrupted_recording_is_a_noop_when_final_output_already_exists() {
+    let dir = std::env::temp_dir().join(format!("recover-noop-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let final_path = dir.join("audio.wav");
+    write_test_wav(&final_path, &[42, 43, 44]);
+
+    let warning =
+        recover_interrupted_recording(&final_path).expect("should be a no-op, not an error");
+    assert!(warning.is_none());
+
+    let mut reader = hound::WavReader::open(&final_path).unwrap();
+    let samples: Vec<i16> = reader.samples::<i16>().map(|s| s.unwrap()).collect();
+    assert_eq!(samples, vec![42, 43, 44], "existing final output must be untouched");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The actual interrupted-recording bug: `stop()` was never called, so only
+/// the intermediate `<id>.mic.wav` exists (no system audio in this case).
+/// Recovery must finalize it into `final_output_path` exactly like `stop()`
+/// would have, so transcription can find the file it expects.
+#[test]
+fn recover_interrupted_recording_finalizes_a_lone_orphaned_mic_file() {
+    let dir = std::env::temp_dir().join(format!("recover-mic-only-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let final_path = dir.join("audio.wav");
+    let mic_path = dir.join("audio.mic.wav");
+    write_test_wav(&mic_path, &[10, 20, 30]);
+
+    let warning = recover_interrupted_recording(&final_path).expect("should recover");
+    assert!(warning.is_none());
+
+    assert!(final_path.exists(), "expected final output to be created");
+    assert!(!mic_path.exists(), "expected intermediate mic file to be consumed");
+
+    let mut reader = hound::WavReader::open(&final_path).unwrap();
+    let samples: Vec<i16> = reader.samples::<i16>().map(|s| s.unwrap()).collect();
+    assert_eq!(samples, vec![10, 20, 30]);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Same as above but with both mic and system intermediate files present --
+/// recovery must mix them exactly like a normal `stop()` would.
+#[test]
+fn recover_interrupted_recording_mixes_orphaned_mic_and_system_files() {
+    let dir = std::env::temp_dir().join(format!("recover-dual-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let final_path = dir.join("audio.wav");
+    let mic_path = dir.join("audio.mic.wav");
+    let system_path = dir.join("audio.system.wav");
+    write_test_wav(&mic_path, &[100, 200, 300]);
+    write_test_wav(&system_path, &[1, 2, 3]);
+
+    let warning = recover_interrupted_recording(&final_path).expect("should recover");
+    assert!(warning.is_none());
+
+    assert!(final_path.exists());
+    assert!(!mic_path.exists());
+    assert!(!system_path.exists());
+
+    let mut reader = hound::WavReader::open(&final_path).unwrap();
+    let samples: Vec<i16> = reader.samples::<i16>().map(|s| s.unwrap()).collect();
+    assert_eq!(samples, vec![101, 202, 303]);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Genuine data loss case: neither the final output nor any intermediate
+/// capture file exists (e.g. the recording crashed before pw-record ever
+/// wrote anything). Recovery must fail with a clear, specific error rather
+/// than silently letting a missing-file whisper.cpp crash stand in for it.
+#[test]
+fn recover_interrupted_recording_errors_when_no_audio_was_ever_captured() {
+    let dir = std::env::temp_dir().join(format!("recover-nothing-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let final_path = dir.join("audio.wav");
+
+    let result = recover_interrupted_recording(&final_path);
+    assert!(
+        result.is_err(),
+        "expected an error when no audio was ever captured, got {:?}",
+        result
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 fn write_test_wav(path: &std::path::Path, samples: &[i16]) {
     write_test_wav_with_rate(path, samples, 16000);
 }

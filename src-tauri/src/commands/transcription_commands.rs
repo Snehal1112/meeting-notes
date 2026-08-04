@@ -1,3 +1,4 @@
+use meeting_notes_audio::recover_interrupted_recording;
 use meeting_notes_core::meeting::{MeetingMeta, MeetingStatus};
 use meeting_notes_storage::{base_dir, load_index, update_meeting};
 use meeting_notes_transcription::{run_whisper, save_transcript};
@@ -56,6 +57,18 @@ fn read_transcript_for_meeting(base: &Path, meeting_id: &str) -> Result<String, 
         .map_err(|e| format!("could not read transcript: {e}"))
 }
 
+/// Finalizes `audio.wav` from an interrupted recording's intermediate
+/// `<id>.mic.wav`/`<id>.system.wav` files if it doesn't already exist. A
+/// no-op for a normal, non-interrupted recording, where `audio.wav` was
+/// already produced by `stop()`. Needed because resuming a meeting after a
+/// crash jumps straight to transcription (see `RecorderWidget.tsx`), which
+/// otherwise expects `audio.wav` to be present.
+fn ensure_final_audio(meeting_dir: &Path) -> Result<(), String> {
+    recover_interrupted_recording(&meeting_dir.join("audio.wav"))
+        .map(|_quality_warning| ())
+        .map_err(|e| e.to_string())
+}
+
 /// Runs whisper.cpp on the meeting's audio, persists the transcript, and
 /// marks the meeting Summarizing in the index. Returns the updated meeting
 /// on success. Split out from `transcribe_meeting` so the AppHandle-free
@@ -66,6 +79,7 @@ async fn run_transcription(
     whisper_model: String,
 ) -> Result<MeetingMeta, String> {
     let meeting_dir = meeting.dir_path(base);
+    ensure_final_audio(&meeting_dir)?;
     let audio_path = meeting_dir.join("audio.wav");
 
     let result = tauri::async_runtime::spawn_blocking(move || run_whisper(&audio_path, &whisper_model))
@@ -171,6 +185,62 @@ mod tests {
         assert_eq!(persisted.status, MeetingStatus::Failed);
 
         std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn ensure_final_audio_finalizes_an_orphaned_mic_only_recording() {
+        // Simulates the resume-after-crash path: `stop()` never ran, so only
+        // the mic intermediate exists on disk, not `audio.wav`. Transcription
+        // must not be handed a missing file.
+        let base = temp_base("ensure-final-audio-recovers-mic-only");
+        let meeting = create_meeting(&base, "Test meeting", MeetingType::AutoDetect).expect("create meeting");
+        append_to_index(&base, &meeting).expect("append to index");
+        let meeting_dir = meeting.dir_path(&base);
+        std::fs::create_dir_all(&meeting_dir).expect("create meeting dir");
+        write_test_wav(&meeting_dir.join("audio.mic.wav"), &[1, 2, 3]);
+
+        ensure_final_audio(&meeting_dir).expect("should recover the orphaned recording");
+
+        assert!(
+            meeting_dir.join("audio.wav").exists(),
+            "expected audio.wav to be finalized from the orphaned mic intermediate"
+        );
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn ensure_final_audio_is_a_noop_when_audio_wav_already_exists() {
+        // The normal, non-interrupted case: `stop()` already produced
+        // `audio.wav`, so recovery must leave it untouched.
+        let base = temp_base("ensure-final-audio-noop");
+        let meeting = create_meeting(&base, "Test meeting", MeetingType::AutoDetect).expect("create meeting");
+        append_to_index(&base, &meeting).expect("append to index");
+        let meeting_dir = meeting.dir_path(&base);
+        std::fs::create_dir_all(&meeting_dir).expect("create meeting dir");
+        write_test_wav(&meeting_dir.join("audio.wav"), &[9, 9, 9]);
+
+        ensure_final_audio(&meeting_dir).expect("should be a no-op");
+
+        let mut reader = hound::WavReader::open(meeting_dir.join("audio.wav")).unwrap();
+        let samples: Vec<i16> = reader.samples::<i16>().map(|s| s.unwrap()).collect();
+        assert_eq!(samples, vec![9, 9, 9], "existing audio.wav must be untouched");
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    fn write_test_wav(path: &std::path::Path, samples: &[i16]) {
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 16000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(path, spec).unwrap();
+        for s in samples {
+            writer.write_sample(*s).unwrap();
+        }
+        writer.finalize().unwrap();
     }
 
     #[test]

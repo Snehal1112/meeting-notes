@@ -2106,6 +2106,7 @@ dependencies = [
 name = "meeting-notes"
 version = "0.1.0"
 dependencies = [
+ "hound",
  "meeting-notes-audio",
  "meeting-notes-core",
  "meeting-notes-storage",

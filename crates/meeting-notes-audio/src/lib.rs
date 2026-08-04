@@ -198,6 +198,38 @@ fn analyze_and_trim(samples: &[i16], sample_rate: u32) -> (Vec<i16>, Option<Qual
     (remaining.to_vec(), warning)
 }
 
+/// Recovers a recording that was interrupted before `stop()` ever ran (e.g.
+/// the app crashed or was killed mid-recording), so `finalize_output` never
+/// got a chance to assemble `final_output_path` from the intermediate
+/// capture file(s). A no-op if `final_output_path` already exists (the
+/// recording completed normally, nothing to recover). Otherwise looks for
+/// the same `<stem>.mic.wav` / `<stem>.system.wav` intermediates that
+/// `RecordingHandle::start` creates (see `linux.rs`/`macos.rs`) and finalizes
+/// whichever are present. Errors if neither the final output nor the mic
+/// intermediate exists -- genuine data loss, since nothing was ever captured.
+pub fn recover_interrupted_recording(
+    final_output_path: &Path,
+) -> Result<Option<QualityWarning>, RecordingError> {
+    if final_output_path.exists() {
+        return Ok(None);
+    }
+
+    let mic_path = final_output_path.with_extension("mic.wav");
+    if !mic_path.exists() {
+        return Err(RecordingError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!(
+                "no audio was ever captured: neither {final_output_path:?} nor {mic_path:?} exist"
+            ),
+        )));
+    }
+
+    let system_path = final_output_path.with_extension("system.wav");
+    let system_path = system_path.exists().then_some(system_path);
+
+    finalize_output(&mic_path, system_path.as_deref(), final_output_path)
+}
+
 /// Mixes two WAV files sample-by-sample into `out_path`, using the WAV spec
 /// (channels, sample rate, bit depth) of `a_path`. Samples are summed and
 /// clamped to the `i16` range to avoid wraparound on clipping. If the two
