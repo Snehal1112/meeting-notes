@@ -28,7 +28,18 @@ export function useAutoResizeWindow(
   ref: RefObject<HTMLElement | null>,
   width: number,
   minHeight: number,
-  enabled = true
+  enabled = true,
+  // Forces a fresh measurement on transitions ResizeObserver cannot detect
+  // on its own -- e.g. App.tsx passes its widgetState. Once the root is
+  // pinned to an explicit height (see measure() below), its flex-1
+  // children stretch to FILL that space rather than shrinking to content,
+  // so swapping in much shorter content (Done -> Idle via "New Recording")
+  // never changes any observed element's own box size. Including this
+  // value in the effect's dependency list tears down and rebuilds the
+  // observer whenever it changes, and a freshly-observed element always
+  // gets measured once even with no size change -- exactly the signal
+  // ResizeObserver alone cannot provide here.
+  remeasureKey?: unknown
 ) {
   useEffect(() => {
     if (!enabled) return;
@@ -114,5 +125,5 @@ export function useAutoResizeWindow(
       // re-enabled.
       el.style.height = "";
     };
-  }, [ref, width, minHeight, enabled]);
+  }, [ref, width, minHeight, enabled, remeasureKey]);
 }

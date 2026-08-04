@@ -192,7 +192,8 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
       expect.anything(),
       400,
       300,
-      true
+      true,
+      "idle"
     );
 
     fireEvent.click(screen.getByRole("button", { name: "go-recording" }));
@@ -200,7 +201,8 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
       expect.anything(),
       400,
       300,
-      false
+      false,
+      "recording"
     );
 
     fireEvent.click(screen.getByRole("button", { name: "go-processing" }));
@@ -208,17 +210,24 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
       expect.anything(),
       400,
       300,
-      false
+      false,
+      "processing"
     );
 
     // Back out of the pill: the hook must be handed sizing again, or the
     // window would stay stuck at the pill's 224x56 on the Done/Idle screen.
+    // widgetState is also passed as remeasureKey here -- distinct from
+    // "recording"/"processing" above -- so this transition forces a fresh
+    // measurement even though `enabled` alone doesn't change from the
+    // previous idle->pill round trip (see useAutoResizeWindow.test.tsx's
+    // "rebuilds the observer and re-measures when remeasureKey changes").
     fireEvent.click(screen.getByRole("button", { name: "go-idle" }));
     expect(vi.mocked(useAutoResizeWindow)).toHaveBeenLastCalledWith(
       expect.anything(),
       400,
       300,
-      true
+      true,
+      "idle"
     );
   });
 

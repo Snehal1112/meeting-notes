@@ -286,4 +286,37 @@ describe("useAutoResizeWindow", () => {
 
     expect(root.style.height).toBe("");
   });
+
+  // Regression test for "New Recording doesn't shrink the window back down":
+  // once the root's height is pinned (e.g. after a long Done-state
+  // summary), swapping in much shorter content (e.g. returning to Idle)
+  // never changes any observed element's own box size -- a pinned root's
+  // flex-1 children stretch to FILL the stale pinned space rather than
+  // shrinking to content -- so the existing ResizeObserver has nothing to
+  // react to and the stale pin persists forever. `remeasureKey` lets the
+  // caller (App.tsx, passing widgetState) force a fresh measurement on a
+  // transition ResizeObserver can't detect on its own.
+  it("rebuilds the observer and re-measures when remeasureKey changes", async () => {
+    currentMonitor.mockResolvedValue(fakeMonitor(1000));
+    Object.defineProperty(root.children[0]!, "scrollHeight", { value: 5000, configurable: true });
+
+    const { rerender } = renderHook(
+      ({ remeasureKey }) => useAutoResizeWindow(ref, 400, 300, true, remeasureKey),
+      { initialProps: { remeasureKey: "done" } }
+    );
+    FakeResizeObserver.instances[0]!.fire();
+    await waitFor(() => expect(root.style.height).toBe("850px"));
+
+    // Simulate "New Recording": the DOM now shows much shorter content, but
+    // nothing about any observed element's OWN box size has organically
+    // changed (it's still stretched to fill the stale 850px pin) -- only
+    // remeasureKey changes, exactly as App.tsx would do by passing widgetState.
+    Object.defineProperty(root.children[0]!, "scrollHeight", { value: 80, configurable: true });
+    rerender({ remeasureKey: "idle" });
+
+    expect(FakeResizeObserver.instances).toHaveLength(2);
+    FakeResizeObserver.instances[1]!.fire();
+
+    await waitFor(() => expect(root.style.height).toBe("300px"));
+  });
 });
