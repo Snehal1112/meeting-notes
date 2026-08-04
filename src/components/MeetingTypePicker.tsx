@@ -25,8 +25,6 @@ interface MeetingTypePickerProps {
 // The chosen type decides which notes prompt the summary crate uses, so it
 // has to be set before recording starts rather than at summarize time.
 export function MeetingTypePicker({ value, onChange, disabled }: MeetingTypePickerProps) {
-  const selected = MEETING_TYPES.find((type) => type.value === value);
-  const SelectedIcon = selected?.icon;
   return (
     <Select
       value={value}
@@ -42,7 +40,9 @@ export function MeetingTypePicker({ value, onChange, disabled }: MeetingTypePick
         aria-label="Meeting type"
         className="w-fit gap-1.5 rounded-full text-xs border-dashed"
       >
-        {SelectedIcon && <SelectedIcon className="text-muted-foreground" />}
+        {/* No icon rendered here: Radix's SelectValue already echoes the
+            selected SelectItem's own children (icon + label, via ItemText)
+            onto the trigger -- rendering it again here duplicated it. */}
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
