@@ -96,16 +96,24 @@ export function Waveform({ active, compact = false }: WaveformProps) {
             getComputedStyle(document.documentElement).getPropertyValue("--destructive").trim() ||
             "oklch(0.577 0.245 27.325)";
           const centerY = canvas.height / 2;
+          // lineWidth/lineCap don't vary per bar (barWidth is fixed above the
+          // loop), so they're set once here rather than redundantly on every
+          // iteration -- canvas 2D context state persists across draw calls.
+          ctx.lineWidth = barWidth * 0.6;
+          ctx.lineCap = "round";
           dataArray.forEach((value, i) => {
             const target = value / 255;
             displayed[i] = easeTowards(displayed[i], target, SMOOTHING_FACTOR);
-            const barHeight = Math.max(minBarHeight, displayed[i] * canvas.height);
+            // Reserve lineWidth's worth of height budget (barWidth * 0.6) so
+            // the round cap's overhang (lineWidth / 2 past each endpoint)
+            // never gets clipped by the canvas edge at max volume -- an
+            // uncapped bar would otherwise flatten to a square top exactly in
+            // the loud/red tier, the opposite of the intended look.
+            const barHeight = Math.max(minBarHeight, displayed[i] * (canvas.height - barWidth * 0.6));
             const x = i * barWidth + barWidth / 2;
             ctx.beginPath();
             ctx.moveTo(x, centerY - barHeight / 2);
             ctx.lineTo(x, centerY + barHeight / 2);
-            ctx.lineWidth = barWidth * 0.6;
-            ctx.lineCap = "round";
             ctx.strokeStyle = colorForIntensity(displayed[i], destructiveColor);
             ctx.stroke();
           });
