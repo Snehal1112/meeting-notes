@@ -192,6 +192,26 @@ fn each_notes_pass_asks_for_what_its_meeting_type_is_about() {
 }
 
 #[test]
+fn notes_pass_tells_the_model_not_to_invent_placeholder_attendees() {
+    // Raw, undiarized speech-to-text with no names spoken gives the model no
+    // real signal for who was on the call. Left unconstrained, it sometimes
+    // fills `attendees` with a vague placeholder ("Unnamed presenter",
+    // "Unidentified team member") instead of an empty array -- which then
+    // renders as literal (junk) attendee text instead of letting the app's
+    // existing "no attendees" fallback do its job. The prompt must rule
+    // this out explicitly rather than leaving it to the model's judgement.
+    for meeting_type in ALL_TYPES {
+        let prompt = notes_pass_for(meeting_type);
+        let lower = prompt.to_lowercase();
+        assert!(
+            lower.contains("empty array") && lower.contains("placeholder"),
+            "{meeting_type:?} notes pass does not instruct the model to leave attendees empty \
+             instead of inventing a placeholder description"
+        );
+    }
+}
+
+#[test]
 fn every_notes_pass_requests_the_keys_the_parser_demands() {
     // parse_pass_fragment rejects a notes response missing "topics" or
     // "summary", so a prompt that forgets to ask for them fails at runtime

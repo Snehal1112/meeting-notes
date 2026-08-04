@@ -16,7 +16,7 @@ const NOTES_SHAPE: &str = r#"Respond with ONLY a JSON object of this exact shape
 No preamble, no markdown fences.
 
 - meeting_type: a short descriptor of this specific meeting, e.g. "Team sync - Q3 OKR review".
-- attendees: people who appear to be ON the call. referenced_people: people mentioned but not clearly present.
+- attendees: people who appear to be ON the call, using ONLY names actually stated in the transcript. referenced_people: people mentioned but not clearly present. If no one is named for either list, use an empty array — never invent a placeholder description like "Unnamed presenter" or "Unidentified team member".
 - summary: ONE substantial paragraph of 4-6 sentences covering what was discussed and what came out of it. Include concrete numbers.
 - decisions: things the group settled on. Empty array if none.
 - topics: "points" must be DETAILED and SPECIFIC — names, numbers, dates, direct quotes, stated reasons and any pushback. Aim for 4-10 points per topic. Prefer concrete detail over generalisation."#;
