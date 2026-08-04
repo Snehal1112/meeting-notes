@@ -1,11 +1,13 @@
-import { renderHook } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useAutoResizeWindow } from "./useAutoResizeWindow";
 
 const setSize = vi.fn(() => Promise.resolve());
+const currentMonitor = vi.fn();
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({ setSize }),
+  currentMonitor: () => currentMonitor(),
 }));
 
 // jsdom has no ResizeObserver. This stand-in also records every instance, so
@@ -35,6 +37,9 @@ const ref = { current: null as HTMLElement | null };
 
 beforeEach(() => {
   setSize.mockClear();
+  // Default: no monitor info (exercises the fallback path unless a test
+  // overrides this with mockResolvedValueOnce for a specific monitor shape).
+  currentMonitor.mockReset().mockResolvedValue(null);
   FakeResizeObserver.instances = [];
   vi.stubGlobal("ResizeObserver", FakeResizeObserver);
   root = document.createElement("div");
@@ -48,13 +53,39 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// A monitor whose workArea is 1000 logical px tall at scaleFactor 1 (chosen
+// so the math is easy to verify by hand): the physical workArea.size.height
+// equals the logical height directly, and toLogical(1) is a no-op division.
+function fakeMonitor(workAreaHeightLogical: number) {
+  return {
+    name: "Fake Monitor",
+    size: { width: 0, height: 0 },
+    position: { x: 0, y: 0 },
+    workArea: {
+      position: { x: 0, y: 0 },
+      size: {
+        width: 0,
+        height: workAreaHeightLogical,
+        toLogical: (scaleFactor: number) => ({
+          width: 0,
+          height: workAreaHeightLogical / scaleFactor,
+        }),
+      },
+    },
+    scaleFactor: 1,
+  };
+}
+
 describe("useAutoResizeWindow", () => {
-  it("measures and resizes the window while enabled", () => {
+  it("measures and resizes the window while enabled", async () => {
     renderHook(() => useAutoResizeWindow(ref, 400, 300, true));
 
     expect(FakeResizeObserver.instances).toHaveLength(1);
     FakeResizeObserver.instances[0]!.fire();
-    expect(setSize).toHaveBeenCalledWith(expect.objectContaining({ width: 400, height: 300 }));
+
+    await waitFor(() =>
+      expect(setSize).toHaveBeenCalledWith(expect.objectContaining({ width: 400, height: 300 }))
+    );
   });
 
   // Regression test for the bug that stopped the window ever reaching the
@@ -102,5 +133,43 @@ describe("useAutoResizeWindow", () => {
   it("defaults to enabled when the parameter is omitted", () => {
     renderHook(() => useAutoResizeWindow(ref, 400, 300));
     expect(FakeResizeObserver.instances).toHaveLength(1);
+  });
+
+  it("caps the height at 85% of the current monitor's logical work-area height", async () => {
+    currentMonitor.mockResolvedValue(fakeMonitor(1000));
+    // Content taller than the cap: make the single child's scrollHeight
+    // exceed 850 (1000 * 0.85) so the cap -- not the content height -- wins.
+    Object.defineProperty(root.children[0]!, "scrollHeight", { value: 5000, configurable: true });
+
+    renderHook(() => useAutoResizeWindow(ref, 400, 300, true));
+    FakeResizeObserver.instances[0]!.fire();
+
+    await waitFor(() =>
+      expect(setSize).toHaveBeenCalledWith(expect.objectContaining({ width: 400, height: 850 }))
+    );
+  });
+
+  it("falls back to a fixed 700px cap when currentMonitor() resolves to null", async () => {
+    currentMonitor.mockResolvedValue(null);
+    Object.defineProperty(root.children[0]!, "scrollHeight", { value: 5000, configurable: true });
+
+    renderHook(() => useAutoResizeWindow(ref, 400, 300, true));
+    FakeResizeObserver.instances[0]!.fire();
+
+    await waitFor(() =>
+      expect(setSize).toHaveBeenCalledWith(expect.objectContaining({ width: 400, height: 700 }))
+    );
+  });
+
+  it("is unaffected by the cap when content is shorter than it", async () => {
+    currentMonitor.mockResolvedValue(fakeMonitor(1000));
+    Object.defineProperty(root.children[0]!, "scrollHeight", { value: 500, configurable: true });
+
+    renderHook(() => useAutoResizeWindow(ref, 400, 300, true));
+    FakeResizeObserver.instances[0]!.fire();
+
+    await waitFor(() =>
+      expect(setSize).toHaveBeenCalledWith(expect.objectContaining({ width: 400, height: 500 }))
+    );
   });
 });
