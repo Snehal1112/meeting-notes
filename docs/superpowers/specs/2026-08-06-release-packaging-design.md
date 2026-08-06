@@ -202,3 +202,12 @@ anywhere in the repo.
 - `scripts/sync-tauri-version.cjs` is simple enough to verify by running
   `bun run release:patch --dry-run` locally and inspecting the diff to
   `tauri.conf.json` before doing a real release.
+
+## Known deviations (post-implementation)
+
+- `package.json`'s `"overrides": {"conventional-changelog": "8.1.0"}` pins
+  around a broken upstream release (`conventional-changelog@8.1.1`,
+  published 2026-08-06, imports `isPrereleaseVersion` from
+  `@conventional-changelog/git-client`, which `git-client@3.1.0` doesn't
+  export). Safe to remove once upstream ships a fix that restores the
+  export or removes the import.
