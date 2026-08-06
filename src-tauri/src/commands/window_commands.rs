@@ -38,16 +38,32 @@ pub fn set_click_through_tracking(
     let generation_counter = state.0.clone();
     std::thread::spawn(move || {
         let mut ignoring = false;
+        let mut logged_error = false;
         loop {
             std::thread::sleep(POLL_INTERVAL);
             if generation_counter.load(Ordering::SeqCst) != generation {
+                // A newer call superseded this thread. Clear anything a tick that raced
+                // the stop path may have set, so the window can never be left ignoring
+                // cursor events.
+                if ignoring {
+                    let _ = window.set_ignore_cursor_events(false);
+                }
                 return;
             }
-            let (Ok(pos), Ok(size), Ok(cursor)) = (
-                window.inner_position(),
-                window.inner_size(),
-                window.cursor_position(),
-            ) else {
+            let pos_result = window.inner_position();
+            let size_result = window.inner_size();
+            let cursor_result = window.cursor_position();
+            let (Ok(pos), Ok(size), Ok(cursor)) = (&pos_result, &size_result, &cursor_result)
+            else {
+                // Unsupported or erroring window queries would otherwise make this loop
+                // no-op forever with zero output. Log once per activation so a broken
+                // API is distinguishable from a geometry miss during manual verification.
+                if !logged_error {
+                    eprintln!(
+                        "click-through poll: window query failed (position: {pos_result:?}, size: {size_result:?}, cursor: {cursor_result:?})"
+                    );
+                    logged_error = true;
+                }
                 continue;
             };
             let relative = (cursor.x - pos.x as f64, cursor.y - pos.y as f64);
