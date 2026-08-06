@@ -27,3 +27,19 @@ pub fn set_summary_provider(provider: Option<String>) -> Result<(), String> {
     config.summary_provider = provider;
     save_to_file(&config).map_err(|e| e.to_string())
 }
+
+/// Persists only the storage-location override, for the same reason
+/// `set_summary_provider` reads from the file rather than the resolved
+/// config.
+///
+/// Called immediately after a successful `migrate_meetings`, rather than
+/// deferred to the settings panel's next Save click: a real filesystem move
+/// has already happened by that point, and leaving `data_dir` unpersisted
+/// until Save would strand the moved meetings if the user instead clicks
+/// Skip, closes the panel, or the app crashes before saving.
+#[tauri::command]
+pub fn set_data_dir(data_dir: Option<String>) -> Result<(), String> {
+    let mut config = load_from_file();
+    config.data_dir = data_dir;
+    save_to_file(&config).map_err(|e| e.to_string())
+}

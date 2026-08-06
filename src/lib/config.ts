@@ -18,3 +18,7 @@ export const configNeedsSetup = () => invoke<boolean>("config_needs_setup");
 // would copy an env-only API key into the plaintext config file.
 export const setSummaryProvider = (provider: string | null) =>
   invoke<void>("set_summary_provider", { provider });
+// Narrow like setSummaryProvider above, for the same reason: persists just
+// the storage-location override without round-tripping the rest of the
+// resolved (env-merged) config through saveConfig.
+export const setDataDir = (dataDir: string | null) => invoke<void>("set_data_dir", { dataDir });

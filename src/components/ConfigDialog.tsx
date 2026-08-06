@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { getConfig, type AppConfig } from "@/lib/config";
+import { getConfig, setDataDir, type AppConfig } from "@/lib/config";
 import { getDataDir } from "@/lib/storage";
 import { countMeetingsAt, migrateMeetings, pickFolder } from "@/lib/dataDir";
 
@@ -49,9 +49,17 @@ export function ConfigDialog({ open, onSave, onSkip }: ConfigDialogProps) {
   const [selectedDataDir, setSelectedDataDir] = useState<string | null>(null);
   const [pendingNewDir, setPendingNewDir] = useState<string | null>(null);
   const [existingMeetingCount, setExistingMeetingCount] = useState(0);
+  // Surfaces a failure from any of the storage-location calls below --
+  // pickFolder, countMeetingsAt, or migrateMeetings -- inline. These are
+  // async functions wired straight to onClick with no caller to bubble a
+  // rejection to, so without this an error would otherwise be an unhandled
+  // promise rejection with no visible sign anything went wrong, leaving the
+  // user stuck looking at the amber warning box.
+  const [storageError, setStorageError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
+    setStorageError(null);
     getConfig().then((config) => {
       setClaudeApiKey(config.claude_api_key ?? "");
       setOllamaEndpoint(config.ollama_endpoint ?? "");
@@ -65,26 +73,48 @@ export function ConfigDialog({ open, onSave, onSkip }: ConfigDialogProps) {
   if (!open) return null;
 
   const handleChangeLocation = async () => {
-    const selected = await pickFolder();
-    if (!selected || typeof selected !== "string") return;
-    const count = await countMeetingsAt(currentDataDir);
-    if (count > 0) {
-      setPendingNewDir(selected);
-      setExistingMeetingCount(count);
-    } else {
-      setSelectedDataDir(selected);
-      setCurrentDataDir(selected);
+    setStorageError(null);
+    try {
+      const selected = await pickFolder();
+      if (!selected || typeof selected !== "string") return;
+      const count = await countMeetingsAt(currentDataDir);
+      if (count > 0) {
+        setPendingNewDir(selected);
+        setExistingMeetingCount(count);
+      } else {
+        setSelectedDataDir(selected);
+        setCurrentDataDir(selected);
+      }
+    } catch (err) {
+      setStorageError(errorMessage(err));
     }
   };
 
   const resolvePendingMove = async (shouldMove: boolean) => {
     if (!pendingNewDir) return;
-    if (shouldMove) {
-      await migrateMeetings(currentDataDir, pendingNewDir);
+    setStorageError(null);
+    try {
+      if (shouldMove) {
+        await migrateMeetings(currentDataDir, pendingNewDir);
+        // Persisted immediately rather than deferred to the Save button:
+        // migrateMeetings just performed a real filesystem move, and
+        // waiting for Save would strand the moved meetings (config.toml
+        // still pointing at the old, now-empty location) if the user
+        // instead clicks Skip, closes the panel, or the app crashes before
+        // saving. See the design spec's "never silently lose or hide
+        // meetings" invariant.
+        await setDataDir(pendingNewDir);
+      }
+      setSelectedDataDir(pendingNewDir);
+      setCurrentDataDir(pendingNewDir);
+      setPendingNewDir(null);
+    } catch (err) {
+      // Deliberately leaves pendingNewDir set on failure so the amber
+      // warning box (and its Move/Leave/Cancel buttons) stays visible for
+      // a retry, instead of silently dropping back to a state that implies
+      // nothing was attempted.
+      setStorageError(errorMessage(err));
     }
-    setSelectedDataDir(pendingNewDir);
-    setCurrentDataDir(pendingNewDir);
-    setPendingNewDir(null);
   };
 
   const handleSave = () => {
@@ -164,6 +194,11 @@ export function ConfigDialog({ open, onSave, onSkip }: ConfigDialogProps) {
               Change…
             </Button>
           </div>
+          {storageError && (
+            <p role="alert" className="mt-1 text-xs text-red-600">
+              {storageError}
+            </p>
+          )}
         </div>
         {pendingNewDir && existingMeetingCount > 0 && (
           <div className="border border-amber-300 bg-amber-50 rounded-md p-3 text-xs space-y-2">
@@ -193,4 +228,9 @@ export function ConfigDialog({ open, onSave, onSkip }: ConfigDialogProps) {
       </div>
     </div>
   );
+}
+
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
 }
