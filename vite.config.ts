@@ -1,5 +1,5 @@
 import path from "node:path";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
@@ -41,5 +41,10 @@ export default defineConfig(async () => ({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test-setup.ts"],
+    // Worktrees created by superpowers skills live under .claude/worktrees/,
+    // nested inside this repo. Without this exclude, running the suite from
+    // the main checkout while one exists picks up its test files too, and a
+    // second React copy from its own node_modules breaks every test.
+    exclude: [...configDefaults.exclude, "**/.claude/**"],
   },
 }));
