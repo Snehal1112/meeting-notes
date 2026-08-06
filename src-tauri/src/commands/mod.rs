@@ -4,6 +4,7 @@ pub mod recording_commands;
 pub mod storage_commands;
 pub mod summary_commands;
 pub mod transcription_commands;
+pub mod window_commands;
 
 use meeting_notes_core::config::resolve_config;
 use std::path::{Path, PathBuf};

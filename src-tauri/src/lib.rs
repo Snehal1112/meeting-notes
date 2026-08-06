@@ -46,6 +46,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(RecordingState(Mutex::new(None)))
+        .manage(commands::window_commands::ClickThroughState::default())
         .setup(|app| {
             #[cfg(target_os = "linux")]
             allow_media_permissions(app.handle());
@@ -84,7 +85,8 @@ pub fn run() {
             commands::transcription_commands::read_transcript_text,
             commands::summary_commands::summarize_meeting,
             commands::data_dir_commands::count_meetings_at,
-            commands::data_dir_commands::migrate_meetings
+            commands::data_dir_commands::migrate_meetings,
+            commands::window_commands::set_click_through_tracking
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
