@@ -370,6 +370,16 @@ describe("useAutoResizeWindow", () => {
     // the first measurement's 500, which is all this test needs to exercise
     // cross-measurement cancellation.
     Object.defineProperty(root.children[0]!, "scrollHeight", { value: 200, configurable: true });
+    // Snapshot the call count right before the second measurement starts, so
+    // every assertion below can look at ALL calls from this point on -- not
+    // just the last one. A last-call-only check cannot tell "the first
+    // animation was truly cancelled" apart from "the first animation just
+    // happened to finish naturally around the same time" -- both end with
+    // the second animation's calls last, since it always starts (and so
+    // finishes its own fixed 180ms duration) after the first. Only scanning
+    // every call in between actually catches a leftover frame from an
+    // uncancelled first animation still easing toward 500.
+    const callsBeforeSecondFire = setSize.mock.calls.length;
     FakeResizeObserver.instances[0]!.fire();
 
     await waitFor(() =>
@@ -381,5 +391,19 @@ describe("useAutoResizeWindow", () => {
     // overwrite the second animation's settled value.
     await new Promise((resolve) => setTimeout(resolve, 250));
     expect(setSize).toHaveBeenLastCalledWith(expect.objectContaining({ height: 300 }));
+
+    // The real proof of cancellation: not one call made since the second
+    // measurement started may carry the first animation's abandoned target
+    // (500). If `isStale` were dropped from the `animateResize(...)` call in
+    // useAutoResizeWindow.ts (reverting to the default no-op isCancelled),
+    // the first animation would keep independently easing toward 500 on its
+    // own schedule and its final frame -- which lands on exactly height:
+    // 500 -- would show up somewhere in this range, regardless of what the
+    // second animation does.
+    const callsSinceSecondFire = setSize.mock.calls.slice(callsBeforeSecondFire);
+    expect(callsSinceSecondFire.length).toBeGreaterThan(0);
+    for (const call of callsSinceSecondFire) {
+      expect((call[0] as { height: number }).height).not.toBeCloseTo(500, 0);
+    }
   });
 });
