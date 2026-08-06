@@ -1,8 +1,9 @@
+use crate::commands::resolved_base_dir;
 use meeting_notes_core::config::resolve_config;
 use meeting_notes_core::meeting::{MeetingMeta, MeetingStatus};
 use meeting_notes_core::notes_markdown::render_summary_markdown;
 use meeting_notes_core::summary::{SummaryProvider, SummaryResult};
-use meeting_notes_storage::{base_dir, load_index, update_meeting};
+use meeting_notes_storage::{load_index, update_meeting};
 use meeting_notes_summary::{build_provider, build_provider_for_kind, notes::generate_notes, ProviderKind};
 use std::path::Path;
 use tauri::{AppHandle, Emitter};
@@ -13,7 +14,7 @@ pub async fn summarize_meeting(
     meeting_id: String,
     provider_override: Option<ProviderKind>,
 ) -> Result<SummaryResult, String> {
-    let base = base_dir().ok_or("could not resolve data directory")?;
+    let base = resolved_base_dir()?;
     let meeting = find_meeting(&base, &meeting_id)?;
 
     // "No provider configured" is a distinct, benign, recoverable state per

@@ -9,6 +9,7 @@ fn both_configured() -> Config {
         ollama_num_ctx: None,
         summary_provider: None,
         whisper_model: None,
+        data_dir: None,
     }
 }
 
@@ -21,6 +22,7 @@ fn selects_ollama_when_both_configured() {
         ollama_num_ctx: None,
         summary_provider: None,
         whisper_model: None,
+        data_dir: None,
     };
     assert_eq!(select_provider_kind(&config), Some(ProviderKind::Ollama));
 }
@@ -34,6 +36,7 @@ fn selects_claude_when_only_claude_configured() {
         ollama_num_ctx: None,
         summary_provider: None,
         whisper_model: None,
+        data_dir: None,
     };
     assert_eq!(select_provider_kind(&config), Some(ProviderKind::Claude));
 }
@@ -47,6 +50,7 @@ fn selects_ollama_when_only_ollama_configured() {
         ollama_num_ctx: None,
         summary_provider: None,
         whisper_model: None,
+        data_dir: None,
     };
     assert_eq!(select_provider_kind(&config), Some(ProviderKind::Ollama));
 }
@@ -60,6 +64,7 @@ fn selects_none_when_neither_configured() {
         ollama_num_ctx: None,
         summary_provider: None,
         whisper_model: None,
+        data_dir: None,
     };
     assert_eq!(select_provider_kind(&config), None);
 }
@@ -73,6 +78,7 @@ fn build_provider_returns_none_when_neither_configured() {
         ollama_num_ctx: None,
         summary_provider: None,
         whisper_model: None,
+        data_dir: None,
     };
     assert!(build_provider(&config).is_none());
 }
@@ -86,6 +92,7 @@ fn build_provider_returns_a_provider_when_configured() {
         ollama_num_ctx: None,
         summary_provider: None,
         whisper_model: None,
+        data_dir: None,
     };
     assert!(build_provider(&config).is_some());
 }

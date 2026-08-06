@@ -3,6 +3,19 @@ use meeting_notes_core::meeting::{MeetingStatus, MeetingType};
 use tempfile::tempdir;
 
 #[test]
+fn base_dir_uses_explicit_override_when_provided() {
+    let override_path = PathBuf::from("/tmp/custom-meeting-notes-location");
+    let resolved = base_dir(Some(&override_path));
+    assert_eq!(resolved, Some(override_path));
+}
+
+#[test]
+fn base_dir_falls_back_to_default_when_no_override() {
+    let resolved = base_dir(None);
+    assert!(resolved.is_some());
+}
+
+#[test]
 fn create_meeting_dir_creates_expected_path() {
     let base = tempdir().unwrap();
     let meta = create_meeting(base.path(), "Team Sync", MeetingType::AutoDetect).unwrap();

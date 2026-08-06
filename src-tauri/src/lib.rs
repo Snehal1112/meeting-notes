@@ -79,7 +79,9 @@ pub fn run() {
             commands::storage_commands::get_data_dir,
             commands::transcription_commands::transcribe_meeting,
             commands::transcription_commands::read_transcript_text,
-            commands::summary_commands::summarize_meeting
+            commands::summary_commands::summarize_meeting,
+            commands::data_dir_commands::count_meetings_at,
+            commands::data_dir_commands::migrate_meetings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

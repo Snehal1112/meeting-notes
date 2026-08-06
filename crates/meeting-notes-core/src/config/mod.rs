@@ -24,6 +24,9 @@ pub struct Config {
     /// failing to parse the whole file.
     pub summary_provider: Option<String>,
     pub whisper_model: Option<String>,
+    /// Override for where meeting data is stored. None means the OS-standard
+    /// default (e.g. `~/.local/share/meeting-notes` on Linux).
+    pub data_dir: Option<String>,
 }
 
 impl Config {
@@ -39,6 +42,7 @@ impl Config {
                 .and_then(|v| v.parse().ok()),
             summary_provider: std::env::var("MEETING_NOTES_SUMMARY_PROVIDER").ok(),
             whisper_model: std::env::var("MEETING_NOTES_WHISPER_MODEL").ok(),
+            data_dir: None,
         }
     }
 
@@ -50,6 +54,7 @@ impl Config {
         self.ollama_num_ctx = self.ollama_num_ctx.or(other.ollama_num_ctx);
         self.summary_provider = self.summary_provider.or(other.summary_provider);
         self.whisper_model = self.whisper_model.or(other.whisper_model);
+        self.data_dir = self.data_dir.or(other.data_dir);
         self
     }
 

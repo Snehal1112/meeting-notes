@@ -1,8 +1,12 @@
 use meeting_notes_core::meeting::{MeetingMeta, MeetingStatus, MeetingType};
 use std::path::{Path, PathBuf};
 
-/// Resolves the app's data directory (e.g. `~/.local/share/meeting-notes` on Linux).
-pub fn base_dir() -> Option<PathBuf> {
+/// Resolves the app's data directory (e.g. `~/.local/share/meeting-notes` on
+/// Linux), or `override_dir` when the user has configured a custom location.
+pub fn base_dir(override_dir: Option<&Path>) -> Option<PathBuf> {
+    if let Some(dir) = override_dir {
+        return Some(dir.to_path_buf());
+    }
     directories::ProjectDirs::from("com", "meeting-notes", "meeting-notes")
         .map(|dirs| dirs.data_dir().to_path_buf())
 }

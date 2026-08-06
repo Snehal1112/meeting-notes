@@ -41,6 +41,7 @@ fn env_takes_precedence_over_file() {
         ollama_num_ctx: None,
         summary_provider: None,
         whisper_model: Some("base.en".into()),
+        data_dir: None,
     };
     unsafe { std::env::set_var("MEETING_NOTES_CLAUDE_API_KEY", "from-env") };
     let env_config = Config::from_env();

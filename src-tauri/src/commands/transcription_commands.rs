@@ -1,6 +1,7 @@
+use crate::commands::resolved_base_dir;
 use meeting_notes_audio::recover_interrupted_recording;
 use meeting_notes_core::meeting::{MeetingMeta, MeetingStatus};
-use meeting_notes_storage::{base_dir, load_index, update_meeting};
+use meeting_notes_storage::{load_index, update_meeting};
 use meeting_notes_transcription::{run_whisper, save_transcript};
 use std::path::Path;
 use tauri::{AppHandle, Emitter};
@@ -11,7 +12,7 @@ pub async fn transcribe_meeting(
     meeting: MeetingMeta,
     whisper_model: String,
 ) -> Result<(), String> {
-    let base = base_dir().ok_or("could not resolve data directory")?;
+    let base = resolved_base_dir()?;
 
     match run_transcription(&base, meeting.clone(), whisper_model).await {
         Ok(updated) => {
@@ -37,7 +38,7 @@ pub async fn transcribe_meeting(
 /// access.
 #[tauri::command]
 pub fn read_transcript_text(meeting_id: String) -> Result<String, String> {
-    let base = base_dir().ok_or("could not resolve data directory")?;
+    let base = resolved_base_dir()?;
     read_transcript_for_meeting(&base, &meeting_id)
 }
 
