@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import type { AppConfig } from "@/lib/config";
+import { getConfig, type AppConfig } from "@/lib/config";
 
 interface ConfigDialogProps {
   open: boolean;
@@ -10,6 +10,15 @@ interface ConfigDialogProps {
 }
 
 const WHISPER_MODELS = ["tiny.en", "base.en", "small.en"];
+
+const EMPTY_CONFIG: AppConfig = {
+  claude_api_key: null,
+  ollama_endpoint: null,
+  ollama_model: null,
+  ollama_num_ctx: null,
+  summary_provider: null,
+  whisper_model: null,
+};
 
 // A plain inline panel, not a modal dialog. A real modal (overlay + portal +
 // dismiss-on-outside-click) fights the always-on-top widget's draggable
@@ -21,16 +30,32 @@ export function ConfigDialog({ open, onSave, onSkip }: ConfigDialogProps) {
   const [ollamaEndpoint, setOllamaEndpoint] = useState("");
   const [ollamaModel, setOllamaModel] = useState("");
   const [whisperModel, setWhisperModel] = useState("base.en");
+  // Fields this panel has no input for (ollama_num_ctx, summary_provider,
+  // and -- once Storage Location is added -- data_dir) must round-trip
+  // through save unchanged. Holding the last-loaded config lets handleSave
+  // spread it as a base instead of hardcoding those fields to null, which
+  // would silently wipe them out every time settings are reopened and saved.
+  const [loadedConfig, setLoadedConfig] = useState<AppConfig>(EMPTY_CONFIG);
+
+  useEffect(() => {
+    if (!open) return;
+    getConfig().then((config) => {
+      setClaudeApiKey(config.claude_api_key ?? "");
+      setOllamaEndpoint(config.ollama_endpoint ?? "");
+      setOllamaModel(config.ollama_model ?? "");
+      setWhisperModel(config.whisper_model ?? "base.en");
+      setLoadedConfig(config);
+    });
+  }, [open]);
 
   if (!open) return null;
 
   const handleSave = () => {
     onSave({
+      ...loadedConfig,
       claude_api_key: claudeApiKey || null,
       ollama_endpoint: ollamaEndpoint || null,
       ollama_model: ollamaModel || null,
-      ollama_num_ctx: null,
-      summary_provider: null,
       whisper_model: whisperModel,
     });
   };

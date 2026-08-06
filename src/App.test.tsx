@@ -76,8 +76,16 @@ const orphan: MeetingMeta = {
 };
 
 beforeEach(async () => {
-  const { configNeedsSetup } = await import("@/lib/config");
+  const { configNeedsSetup, getConfig } = await import("@/lib/config");
   vi.mocked(configNeedsSetup).mockReset().mockResolvedValue(false);
+  vi.mocked(getConfig).mockReset().mockResolvedValue({
+    claude_api_key: null,
+    ollama_endpoint: null,
+    ollama_model: null,
+    ollama_num_ctx: null,
+    summary_provider: null,
+    whisper_model: null,
+  });
 
   const { getOrphanedMeetings } = await import("@/lib/storage");
   vi.mocked(getOrphanedMeetings).mockReset().mockResolvedValue([]);

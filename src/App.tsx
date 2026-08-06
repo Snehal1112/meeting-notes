@@ -224,7 +224,7 @@ function App() {
             "min-h-[300px] flex flex-col rounded-lg overflow-hidden border shadow-widget bg-background"
       }
     >
-      {!isPill && <TitleBar />}
+      {!isPill && <TitleBar onOpenSettings={() => setShowConfigDialog(true)} />}
       {!isPill && showConfigDialog && (
         <ConfigDialog open={showConfigDialog} onSave={handleSave} onSkip={handleSkip} />
       )}
