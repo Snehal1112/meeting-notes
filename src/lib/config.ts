@@ -7,6 +7,7 @@ export interface AppConfig {
   ollama_num_ctx: number | null;
   summary_provider: string | null;
   whisper_model: string | null;
+  data_dir: string | null;
 }
 
 export const getConfig = () => invoke<AppConfig>("get_config");

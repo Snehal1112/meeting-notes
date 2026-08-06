@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { getConfig, type AppConfig } from "@/lib/config";
+import { getDataDir } from "@/lib/storage";
+import { countMeetingsAt, migrateMeetings, pickFolder } from "@/lib/dataDir";
 
 interface ConfigDialogProps {
   open: boolean;
@@ -18,6 +20,7 @@ const EMPTY_CONFIG: AppConfig = {
   ollama_num_ctx: null,
   summary_provider: null,
   whisper_model: null,
+  data_dir: null,
 };
 
 // A plain inline panel, not a modal dialog. A real modal (overlay + portal +
@@ -36,6 +39,16 @@ export function ConfigDialog({ open, onSave, onSkip }: ConfigDialogProps) {
   // spread it as a base instead of hardcoding those fields to null, which
   // would silently wipe them out every time settings are reopened and saved.
   const [loadedConfig, setLoadedConfig] = useState<AppConfig>(EMPTY_CONFIG);
+  // The resolved directory actually in use right now (for display), and --
+  // once the user picks and confirms a different one -- the override to
+  // persist. Kept separate from currentDataDir so merely opening the panel
+  // and saving without touching Storage Location leaves data_dir exactly as
+  // it was (None keeps resolving to the OS default dynamically instead of
+  // getting pinned to whatever path happened to resolve today).
+  const [currentDataDir, setCurrentDataDir] = useState("");
+  const [selectedDataDir, setSelectedDataDir] = useState<string | null>(null);
+  const [pendingNewDir, setPendingNewDir] = useState<string | null>(null);
+  const [existingMeetingCount, setExistingMeetingCount] = useState(0);
 
   useEffect(() => {
     if (!open) return;
@@ -46,9 +59,33 @@ export function ConfigDialog({ open, onSave, onSkip }: ConfigDialogProps) {
       setWhisperModel(config.whisper_model ?? "base.en");
       setLoadedConfig(config);
     });
+    getDataDir().then(setCurrentDataDir);
   }, [open]);
 
   if (!open) return null;
+
+  const handleChangeLocation = async () => {
+    const selected = await pickFolder();
+    if (!selected || typeof selected !== "string") return;
+    const count = await countMeetingsAt(currentDataDir);
+    if (count > 0) {
+      setPendingNewDir(selected);
+      setExistingMeetingCount(count);
+    } else {
+      setSelectedDataDir(selected);
+      setCurrentDataDir(selected);
+    }
+  };
+
+  const resolvePendingMove = async (shouldMove: boolean) => {
+    if (!pendingNewDir) return;
+    if (shouldMove) {
+      await migrateMeetings(currentDataDir, pendingNewDir);
+    }
+    setSelectedDataDir(pendingNewDir);
+    setCurrentDataDir(pendingNewDir);
+    setPendingNewDir(null);
+  };
 
   const handleSave = () => {
     onSave({
@@ -57,6 +94,7 @@ export function ConfigDialog({ open, onSave, onSkip }: ConfigDialogProps) {
       ollama_endpoint: ollamaEndpoint || null,
       ollama_model: ollamaModel || null,
       whisper_model: whisperModel,
+      data_dir: selectedDataDir ?? loadedConfig.data_dir,
     });
   };
 
@@ -118,6 +156,34 @@ export function ConfigDialog({ open, onSave, onSkip }: ConfigDialogProps) {
             ))}
           </select>
         </div>
+        <div>
+          <label className="text-xs font-medium text-muted-foreground">Storage Location</label>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-xs text-foreground truncate flex-1">{currentDataDir}</span>
+            <Button variant="outline" size="sm" onClick={handleChangeLocation}>
+              Change…
+            </Button>
+          </div>
+        </div>
+        {pendingNewDir && existingMeetingCount > 0 && (
+          <div className="border border-amber-300 bg-amber-50 rounded-md p-3 text-xs space-y-2">
+            <p className="text-amber-900">
+              {existingMeetingCount} existing meeting{existingMeetingCount === 1 ? "" : "s"} found
+              at the current location. What should happen to them?
+            </p>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => resolvePendingMove(true)}>
+                Move them
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => resolvePendingMove(false)}>
+                Leave them, use new location only
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setPendingNewDir(null)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <Button variant="ghost" onClick={onSkip}>

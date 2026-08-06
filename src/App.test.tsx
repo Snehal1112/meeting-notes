@@ -85,10 +85,12 @@ beforeEach(async () => {
     ollama_num_ctx: null,
     summary_provider: null,
     whisper_model: null,
+    data_dir: null,
   });
 
-  const { getOrphanedMeetings } = await import("@/lib/storage");
+  const { getOrphanedMeetings, getDataDir } = await import("@/lib/storage");
   vi.mocked(getOrphanedMeetings).mockReset().mockResolvedValue([]);
+  vi.mocked(getDataDir).mockReset().mockResolvedValue("/home/user/.local/share/meeting-notes");
 
   recorderMountCount = 0;
 });

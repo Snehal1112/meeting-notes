@@ -9,6 +9,7 @@ const config = (overrides: Partial<AppConfig> = {}): AppConfig => ({
   ollama_num_ctx: null,
   summary_provider: null,
   whisper_model: null,
+  data_dir: null,
   ...overrides,
 });
 

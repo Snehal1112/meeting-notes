@@ -93,6 +93,7 @@ beforeEach(async () => {
     ollama_num_ctx: null,
     summary_provider: null,
     whisper_model: "base.en",
+    data_dir: null,
   });
   vi.mocked(saveConfig).mockReset().mockResolvedValue(undefined);
   vi.mocked(setSummaryProvider).mockReset().mockResolvedValue(undefined);
@@ -314,6 +315,7 @@ describe("RecorderWidget transcription integration", () => {
       ollama_num_ctx: null,
       summary_provider: null,
       whisper_model: "small.en",
+      data_dir: null,
     });
     render(<RecorderWidget />);
     fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
@@ -365,6 +367,7 @@ describe("RecorderWidget transcription integration", () => {
       ollama_num_ctx: null,
       summary_provider: null,
       whisper_model: null,
+      data_dir: null,
     });
     render(<RecorderWidget />);
     fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
@@ -690,6 +693,7 @@ describe("RecorderWidget provider picker", () => {
       ollama_num_ctx: null,
       summary_provider: null,
       whisper_model: "small.en",
+      data_dir: null,
     });
 
     render(<RecorderWidget />);
@@ -736,6 +740,7 @@ describe("RecorderWidget provider resolution at summarize time", () => {
       ollama_num_ctx: null,
       summary_provider: null,
       whisper_model: "base.en",
+      data_dir: null,
     });
 
     await completeTranscription();
@@ -756,6 +761,7 @@ describe("RecorderWidget provider resolution at summarize time", () => {
       ollama_num_ctx: null,
       summary_provider: "claude",
       whisper_model: "base.en",
+      data_dir: null,
     });
 
     await completeTranscription();
@@ -775,6 +781,7 @@ describe("RecorderWidget provider resolution at summarize time", () => {
       ollama_num_ctx: null,
       summary_provider: null,
       whisper_model: "base.en",
+      data_dir: null,
     });
 
     await completeTranscription();
@@ -803,6 +810,7 @@ describe("RecorderWidget single provider configured", () => {
       ollama_num_ctx: null,
       summary_provider: null,
       whisper_model: "base.en",
+      data_dir: null,
     });
     const { onTranscriptionComplete } = await import("@/lib/transcription");
     let fire: ((meeting: MeetingMeta) => void) | undefined;
