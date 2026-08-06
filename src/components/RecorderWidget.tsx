@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { startRecording, stopRecording } from "@/lib/recording";
-import { MeetingTypePicker, MEETING_TYPES } from "@/components/MeetingTypePicker";
+import { MeetingTypePicker } from "@/components/MeetingTypePicker";
 import {
   createNewMeeting,
   getDataDir,
@@ -11,29 +11,16 @@ import {
   type MeetingMeta,
   type MeetingType,
 } from "@/lib/storage";
-import { transcribeMeeting, readTranscriptText, onTranscriptionComplete } from "@/lib/transcription";
+import { transcribeMeeting, onTranscriptionComplete } from "@/lib/transcription";
 import { getConfig, setSummaryProvider, type AppConfig } from "@/lib/config";
-import { summarizeMeeting, toProviderKind, type SummaryResult, type ProviderKind } from "@/lib/summary";
+import { summarizeMeeting, toProviderKind, type ProviderKind } from "@/lib/summary";
 import { Waveform } from "@/components/Waveform";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { ProviderPicker, type ProviderName } from "@/components/ProviderPicker";
 import { startWindowDrag } from "@/lib/drag";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { openPath } from "@tauri-apps/plugin-opener";
 import { Mic, MicOff, Square, AlertTriangle } from "lucide-react";
 
-// Action items are stored flat (no per-item ids), see runSummarization below
-// -- the checklist keys off array position instead.
-export interface ActionItem {
-  id: string;
-  text: string;
-  owner: string | null;
-  completed: boolean;
-}
-
-export type WidgetState = "idle" | "recording" | "processing" | "done";
+export type WidgetState = "idle" | "recording" | "processing";
 // "choosing_provider" is a distinct sub-status from "summarizing": it's the
 // window between transcription finishing and the user confirming which
 // provider to use for this run, shown only when more than one provider is
@@ -62,10 +49,6 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
   const [recordingError, setRecordingError] = useState<string | null>(null);
   const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatus>("transcribing");
-  const [summaryResult, setSummaryResult] = useState<SummaryResult | null>(null);
-  const [summaryError, setSummaryError] = useState<string | null>(null);
-  const [actionItems, setActionItems] = useState<ActionItem[]>([]);
-  const [transcriptText, setTranscriptText] = useState("");
   const [busy, setBusy] = useState(false);
   const [config, setConfig] = useState<AppConfig | null>(null);
   // Ephemeral, per-run provider choice for the summary about to be
@@ -75,19 +58,13 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
   // than one provider configured; they are not persisted anywhere.
   const [availableProviders, setAvailableProviders] = useState<ProviderKind[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<ProviderKind | null>(null);
-  // Drives only the Done-state "Regenerate with [other provider]" button's
-  // disabled/label state while a regenerate run is in flight.
-  const [isRegenerating, setIsRegenerating] = useState(false);
   const currentMeetingRef = useRef<MeetingMeta | null>(null);
   // Guards runSummarization against a stale run clobbering state the widget
-  // has already moved on to. Unlike runTranscription (only ever invoked from
-  // the processing effect, which offers no way to leave that state),
-  // runSummarization is also invoked from the Done-state regenerate button —
-  // and Done leaves New Recording and Save & Close enabled while a regenerate
-  // is in flight. Bumped wherever the widget leaves the state that a
-  // regenerate run belongs to; runSummarization checks it before every
-  // set* call so an abandoned run's result or error never lands after the
-  // fact. See runSummarization below for the actual guard.
+  // has already moved on to (e.g. a new recording started while a previous
+  // meeting's summarization was still in flight). Bumped wherever the widget
+  // leaves the state that a run belongs to; runSummarization checks it
+  // before every set* call so an abandoned run's result or error never
+  // lands after the fact.
   const summarizeRunRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Wall-clock start time, so the elapsed timer cannot drift when ticks are throttled.
@@ -152,57 +129,45 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
     }
   }, []);
 
-  // Actually calls summarize_meeting and lands the widget in the done state.
-  // Split out from the processing effect below so it can be invoked either
+  // Actually calls summarize_meeting, opens the generated summary.md in the
+  // system's default handler, and returns the widget to idle. Split out
+  // from the processing effect below so it can be invoked either
   // immediately (0 or 1 provider configured — today's behavior, unchanged)
   // or later, from the picker's confirm button (2 providers configured), by
   // which point the effect that discovered `meetingId` has already returned.
   const runSummarization = useCallback(async (meetingId: string, provider?: ProviderKind) => {
     // Claim this as the current run. If summarizeRunRef.current no longer
     // matches `run` by the time an awaited call below resolves, the widget
-    // has since left the state this run belongs to (new recording started,
-    // or Done was dismissed) — every set* call, including in `finally`, must
-    // then be skipped so a late-arriving regenerate cannot yank the UI back.
+    // has since left the state this run belongs to (e.g. a new recording
+    // started) — every set* call, including in `finally`, must then be
+    // skipped so a late-arriving run cannot yank the UI back.
     const run = ++summarizeRunRef.current;
     setProcessingStatus("summarizing");
     try {
       // Called with only one argument (no explicit `undefined` forwarded)
       // when there is nothing to override, so the zero-provider path is
       // observably identical to the pre-picker call site.
-      const result = provider
-        ? await summarizeMeeting(meetingId, provider)
-        : await summarizeMeeting(meetingId);
+      provider ? await summarizeMeeting(meetingId, provider) : await summarizeMeeting(meetingId);
       if (summarizeRunRef.current !== run) return;
-      setSummaryResult(result);
-      // Action items are stored flat (no per-item ids) by design, so the
-      // checklist keys off the array position.
-      setActionItems(
-        result.action_items.map((item, i) => ({
-          id: String(i),
-          text: item.text,
-          owner: item.owner,
-          completed: false,
-        }))
-      );
+      const dataDir = await getDataDir();
+      const summaryPath = `${dataDir}/meetings/${meetingId}/summary.md`;
+      try {
+        await openPath(summaryPath);
+      } catch (err) {
+        // Opening externally failing shouldn't strand the user on a stuck
+        // Processing pill — the file is still on disk even if it couldn't
+        // be opened for them.
+        console.error("Failed to open summary.md externally:", errorMessage(err));
+      }
     } catch (err) {
       if (summarizeRunRef.current !== run) return;
-      // The transcript is already on disk, so a summary failure is not
-      // data loss — record it and still move on to the done state
-      // rather than leaving the widget stuck on "Generating summary…".
-      //
-      // "not_configured" (no provider set up at all) is a different
-      // problem from a configured-but-broken provider, and telling the
-      // user to configure one when they already have would misdirect
-      // them, so the two get distinct messages.
-      const message = errorMessage(err);
-      console.error("Summary generation failed:", message);
-      setSummaryError(
-        message.includes("not_configured")
-          ? "Not generated — configure a provider to enable summaries."
-          : "Summary generation failed. The transcript is still available."
-      );
+      // The transcript is already on disk, so a summary failure is not data
+      // loss. There is no in-app screen to surface it on, so it's logged and
+      // the widget still returns to idle rather than being stuck on
+      // "Generating summary…" forever.
+      console.error("Summary generation failed:", errorMessage(err));
     } finally {
-      if (summarizeRunRef.current === run) setState("done");
+      if (summarizeRunRef.current === run) setState("idle");
     }
   }, []);
 
@@ -227,17 +192,6 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
         if (cancelled) return;
         currentMeetingRef.current = updated;
         setProcessingStatus("summarizing");
-
-        // Fetched here rather than in the done state so the transcript tab
-        // has content the moment it is first opened. A failure is left as an
-        // empty string, which the tab renders as "Transcript unavailable." —
-        // it must not block the summary below.
-        try {
-          setTranscriptText(await readTranscriptText(updated.id));
-        } catch (err) {
-          console.error("Could not read transcript:", errorMessage(err));
-          setTranscriptText("");
-        }
 
         // Determine which providers are actually usable for this run. Fetched
         // fresh here (rather than reusing the mount-time `config` state)
@@ -336,48 +290,6 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
     void runSummarization(meeting.id, selectedProvider);
   };
 
-  // The provider not currently backing the summary on screen, among those
-  // that were configured for this run. availableProviders is only populated
-  // (and left populated) when exactly two providers were configured at
-  // transcription-finish time, so this is null whenever there is no
-  // alternate provider to regenerate with.
-  //
-  // Guarded on selectedProvider !== null: it is only ever set when two
-  // providers were configured (see the processing effect and
-  // handleRegenerate below); when just one provider is configured,
-  // selectedProvider stays null while availableProviders still holds that
-  // one entry. Without this guard, `p !== null` is true for that sole
-  // provider, so .find would wrongly return it as "the other" provider —
-  // offering to regenerate with the only provider that was ever used.
-  const otherProvider = (): ProviderKind | null => {
-    if (selectedProvider === null) return null;
-    const other = availableProviders.find((p) => p !== selectedProvider);
-    return other ?? null;
-  };
-
-  // Re-runs summarization for the same meeting with the alternate provider,
-  // so the user can compare output. Reuses runSummarization rather than
-  // duplicating its summarize/setSummaryResult/setActionItems/error-handling
-  // body. runSummarization swallows its own errors (setSummaryError, never
-  // rethrows), so there is nothing for a try/catch here to catch from that
-  // call — isRegenerating only tracks the in-flight state for the button.
-  const handleRegenerate = async () => {
-    const target = otherProvider();
-    const meeting = currentMeetingRef.current;
-    if (!target || !meeting) return;
-    setSummaryError(null);
-    setIsRegenerating(true);
-    try {
-      await runSummarization(meeting.id, target);
-    } finally {
-      setIsRegenerating(false);
-    }
-    // Flip regardless of success or failure: summaryError already
-    // communicates a failed attempt, and always advancing the label lets the
-    // user immediately try the other provider again.
-    setSelectedProvider(target);
-  };
-
   const handleStart = async () => {
     if (busy) return;
     setBusy(true);
@@ -385,16 +297,9 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
     setElapsedSeconds(0);
     setQualityWarning(null);
     setTranscriptionError(null);
-    // Clear the previous meeting's results, or they would still be on screen
-    // when this recording reaches the done state.
-    setSummaryResult(null);
-    setSummaryError(null);
-    setActionItems([]);
-    setTranscriptText("");
-    // Invalidate any regenerate still in flight for the previous meeting —
-    // see summarizeRunRef above. Without this, a stale regenerate resolving
-    // after this new recording starts would overwrite the state above with
-    // the old meeting's summary.
+    // Invalidate any summarization still in flight for the previous meeting
+    // — see summarizeRunRef above. Without this, a stale run resolving after
+    // this new recording starts would open the old meeting's summary.md.
     summarizeRunRef.current++;
     try {
       const meeting = await createNewMeeting(title, meetingType);
@@ -465,12 +370,6 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
     } finally {
       setBusy(false);
     }
-  };
-
-  const toggleActionItem = (id: string) => {
-    setActionItems((items) =>
-      items.map((item) => (item.id === id ? { ...item, completed: !item.completed } : item))
-    );
   };
 
   const formattedTime = `${String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:${String(
@@ -663,207 +562,6 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
       </div>
     );
   }
-
-  // The meeting-type icon+label to show as a Badge in the Done header,
-  // reusing the same list the idle-state MeetingTypePicker renders from so
-  // the two never drift. currentMeetingRef.current?.meeting_type is the
-  // MeetingType chosen (or auto-detected) for this meeting -- distinct from
-  // summaryResult.meeting_type, which is a free-form string the model wrote
-  // for the saved notes, not this fixed set of values.
-  const doneMeetingType = MEETING_TYPES.find(
-    (type) => type.value === currentMeetingRef.current?.meeting_type
-  );
-
-  return (
-    <div className="flex flex-col gap-2 h-full text-sm">
-      {qualityWarning && <span className="text-xs text-amber-600">{qualityWarning}</span>}
-      <div className="flex items-center gap-2 min-w-0">
-        {doneMeetingType && (
-          <Badge variant="outline" className="flex-shrink-0 gap-1">
-            <doneMeetingType.icon className="text-muted-foreground" />
-            {doneMeetingType.label}
-          </Badge>
-        )}
-        {summaryResult &&
-          (summaryResult.attendees.length > 0 ? (
-            <div className="flex min-w-0 items-center gap-1.5">
-              <div className="flex -space-x-2 flex-shrink-0">
-                {summaryResult.attendees.map((name, i) => (
-                  // role="img" + aria-label rather than a bare title: the
-                  // visible content is only the initials, and title alone on a
-                  // non-interactive element has unreliable screen-reader
-                  // support. Matches the micOnlyWarning/qualityWarning
-                  // indicators above; title stays for the hover tooltip.
-                  <Avatar
-                    key={i}
-                    role="img"
-                    aria-label={name}
-                    title={name}
-                    className="h-6 w-6 border-2 border-background"
-                  >
-                    <AvatarFallback>{initials(name)}</AvatarFallback>
-                  </Avatar>
-                ))}
-              </div>
-              {summaryResult.referenced_people.length > 0 && (
-                // Referenced-but-unconfirmed people are a distinct category
-                // from confirmed attendees, so they stay out of the avatar
-                // pile and get a compact caption instead -- see the wording
-                // in notes_markdown.rs, which this deliberately mirrors.
-                <span className="text-xs text-muted-foreground truncate">
-                  · also referenced: {summaryResult.referenced_people.join(", ")}
-                </span>
-              )}
-            </div>
-          ) : (
-            <span className="text-xs text-muted-foreground">Attendees not identified</span>
-          ))}
-      </div>
-      <Tabs defaultValue="summary" className="flex-1 flex flex-col overflow-hidden">
-        <TabsList className="grid grid-cols-3">
-          <TabsTrigger value="summary">Summary</TabsTrigger>
-          <TabsTrigger value="actions">Action Items</TabsTrigger>
-          <TabsTrigger value="transcript">Transcript</TabsTrigger>
-        </TabsList>
-        <TabsContent value="summary" className="overflow-y-auto flex-1">
-          {summaryResult ? (
-            <div className="space-y-3">
-              {summaryError && (
-                // A regenerate failure (e.g. Ollama not running) must not
-                // erase a summary that already loaded successfully — show it
-                // as a banner above the still-rendered summary rather than
-                // replacing it, the way the error-only branch below does for
-                // a first-generation failure (where there is nothing to
-                // preserve).
-                <p role="alert" className="text-xs text-red-600">
-                  {summaryError}
-                </p>
-              )}
-              <p>{summaryResult?.summary}</p>
-              {summaryResult?.topics.map(
-                (topic, i) =>
-                  topic.points.length > 0 && (
-                    <div key={i}>
-                      <h3 className="font-medium">{topic.title}</h3>
-                      <ul className="list-disc pl-4">
-                        {topic.points.map((point, j) => (
-                          <li key={j}>{point}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )
-              )}
-              {summaryResult && summaryResult.decisions.length > 0 && (
-                <div>
-                  <h3 className="font-medium">Decisions</h3>
-                  <ul className="list-disc pl-4">
-                    {summaryResult.decisions.map((d, i) => (
-                      <li key={i}>{d}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {summaryResult && summaryResult.open_questions.length > 0 && (
-                <div>
-                  <h3 className="font-medium">Open Questions</h3>
-                  <ul className="list-disc pl-4">
-                    {summaryResult.open_questions.map((q, i) => (
-                      <li key={i}>{q}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          ) : summaryError ? (
-            // No summary was ever generated for this meeting (first-attempt
-            // failure) — nothing to preserve, so the error stands alone.
-            <p className="text-xs text-muted-foreground">{summaryError}</p>
-          ) : null}
-        </TabsContent>
-        <TabsContent value="actions" className="overflow-y-auto flex-1">
-          {actionItems.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No action items found.</p>
-          ) : (
-            <ul className="space-y-2">
-              {actionItems.map((item) => (
-                <li key={item.id} className="flex items-start gap-2">
-                  <Checkbox
-                    id={`action-item-${item.id}`}
-                    checked={item.completed}
-                    onCheckedChange={() => toggleActionItem(item.id)}
-                  />
-                  <label
-                    htmlFor={`action-item-${item.id}`}
-                    className={
-                      item.completed
-                        ? "flex flex-1 flex-wrap items-center gap-1.5 line-through text-muted-foreground"
-                        : "flex flex-1 flex-wrap items-center gap-1.5"
-                    }
-                  >
-                    {item.text}
-                    {item.owner && <Badge variant="secondary">{item.owner}</Badge>}
-                  </label>
-                </li>
-              ))}
-            </ul>
-          )}
-        </TabsContent>
-        <TabsContent value="transcript" className="overflow-y-auto flex-1 text-xs">
-          {transcriptText || "Transcript unavailable."}
-        </TabsContent>
-      </Tabs>
-      <Separator />
-      {/* flex-wrap: this row lives in a card whose width is fixed at 400px
-          (only height auto-grows, see useAutoResizeWindow in App.tsx) — three
-          buttons, including a dynamic-length "Regenerate with X" label, can
-          exceed that width. Wrapping to a second line costs nothing (the
-          window already grows for taller content) and is safer than relying
-          on exact text-width budgeting across every font/label combination. */}
-      <div className="flex flex-wrap gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            // Leaving Done invalidates any regenerate still in flight — see
-            // summarizeRunRef above — so it cannot land later and yank the
-            // UI back to this (now stale) meeting's Done screen.
-            summarizeRunRef.current++;
-            setState("idle");
-          }}
-        >
-          New Recording
-        </Button>
-        <Button
-          variant="success"
-          size="sm"
-          onClick={() => {
-            summarizeRunRef.current++;
-            setState("idle");
-          }}
-        >
-          Save &amp; Close
-        </Button>
-        {otherProvider() && (
-          <Button variant="ghost" size="sm" onClick={handleRegenerate} disabled={isRegenerating}>
-            {isRegenerating ? "Regenerating…" : `Regenerate with ${otherProvider()}`}
-          </Button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// Initials for the Done-state attendee face-pile: first letter of each
-// space-separated word, capped at two characters, uppercased -- e.g.
-// "Parker" -> "P", "Devi Shah" -> "DS".
-function initials(name: string): string {
-  return name
-    .trim()
-    .split(/\s+/)
-    .map((part) => part[0] ?? "")
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
 }
 
 function errorMessage(err: unknown): string {
