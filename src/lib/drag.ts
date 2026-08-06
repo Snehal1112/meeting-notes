@@ -9,12 +9,12 @@ interface DragMouseEvent {
 interface StartWindowDragOptions {
   /// Only start a drag when the mousedown landed on the drag surface itself.
   /// Needed for surfaces that contain their own interactive children (the
-  /// Recording and Processing pills hold a Stop button and a Retry button):
-  /// mousedown bubbles, so without this guard pressing any of them would be
-  /// swallowed into a window drag instead of reaching the control. Surfaces
-  /// whose children are purely decorative (the TitleBar's grip dots) leave
-  /// this off, or pressing a dot -- dead centre of the title bar -- would
-  /// not drag the window.
+  /// Recording and Processing pills hold a Stop button and a Retry button,
+  /// the TitleBar holds a close button): mousedown bubbles, so without this
+  /// guard pressing any of them would be swallowed into a window drag
+  /// instead of reaching the control. A surface with only decorative
+  /// children (no buttons or other interactive elements) can safely leave
+  /// this off.
   requireSelfTarget?: boolean;
 }
 
