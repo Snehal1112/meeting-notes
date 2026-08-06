@@ -67,7 +67,12 @@ pub fn load_index(base: &Path) -> std::io::Result<Vec<MeetingMeta>> {
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
 }
 
-fn save_index(base: &Path, index: &[MeetingMeta]) -> std::io::Result<()> {
+/// Writes `index.json` atomically (temp file + rename). `pub` so callers
+/// outside this crate that need to write a full index directly -- e.g.
+/// `migrate_meetings`, which writes both the source and destination indices
+/// during a storage-location move -- go through the same crash-safe path as
+/// `append_to_index`/`update_meeting` instead of a plain `fs::write`.
+pub fn save_index(base: &Path, index: &[MeetingMeta]) -> std::io::Result<()> {
     let contents = serde_json::to_string_pretty(index)?;
     // Write to a temp file and rename over the real path so a crash mid-write
     // can never leave index.json truncated or corrupt — rename is atomic on
