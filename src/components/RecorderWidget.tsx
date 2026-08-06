@@ -403,7 +403,7 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
         className="h-full w-full flex items-center justify-center gap-2 bg-background border rounded-full px-3 py-2 shadow-sm text-sm text-muted-foreground"
       >
         {qualityWarning && (
-          // Fixed-size pill (260x56), so an arbitrary-length backend string
+          // Fixed-size pill (280x64), so an arbitrary-length backend string
           // gets a compact icon + tooltip/accessible-label instead of a full
           // line, the same treatment as micOnlyWarning in the Recording pill.
           <span

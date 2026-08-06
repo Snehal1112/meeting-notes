@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import App from "./App";
 import type { MeetingMeta } from "@/lib/storage";
 
-type MockWidgetState = "idle" | "recording" | "processing" | "done";
+type MockWidgetState = "idle" | "recording" | "processing";
 
 // Bumped once per genuine RecorderWidget *mount* (see idRef below) --
 // distinct from a re-render of an already-mounted instance. Used by the

@@ -33,9 +33,10 @@ vi.mock("@/lib/config", () => ({
 }));
 
 vi.mock("@/lib/summary", async (importOriginal) => {
-  // toProviderKind is pure ProviderName->ProviderKind mapping logic (no
-  // Tauri invoke), so the real implementation is used here — only
-  // summarizeMeeting (the actual IPC call) needs mocking.
+  // resolveProvider (and the toProviderKind it uses internally) are pure
+  // config-resolution logic (no Tauri invoke), so the real implementation
+  // is used here — only summarizeMeeting (the actual IPC call) needs
+  // mocking.
   const actual = await importOriginal<typeof import("@/lib/summary")>();
   return {
     ...actual,

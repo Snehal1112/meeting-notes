@@ -73,13 +73,17 @@ const PILL_SIZES: Record<"recording" | "processing", { width: number; height: nu
   recording: { width: 224, height: 56 },
   // Wider than the Recording pill: this pill can hold a Retry button and
   // qualityWarning's icon, rendered in the global body font (JetBrains
-  // Mono, wider per-character than the Inter it was previously sized
-  // against).
+  // Mono, wider per-character than the Inter it was originally sized
+  // against). The width was 300px while this pill also held a two-provider
+  // picker (a Select trigger + "Generate Summary" button); with that picker
+  // removed, 280px is a conservative reduction -- not a full reversion to
+  // the original 260px, which was already too tight for the icon and font
+  // alone before the picker ever existed (see git history on this line).
   // Height is taller than the Recording pill's 56px: the "summarizing"
   // sub-status's explanatory sentence wraps to 2 lines instead of being
   // truncated to 1 (see RecorderWidget.tsx), and needs the extra vertical
   // room to avoid trading a horizontal overflow bug for a vertical one.
-  processing: { width: 260, height: 64 },
+  processing: { width: 280, height: 64 },
 };
 
 // Reads the window's actual current logical size, so the resize animation

@@ -21,8 +21,10 @@ export function ProviderPicker({ config, onChange }: ProviderPickerProps) {
   // resolveProvider is shared with RecorderWidget's post-recording run, so
   // what's highlighted here always matches what a recording actually uses.
   // The guard above guarantees at least one provider is configured, so
-  // resolveProvider cannot return undefined past this point.
-  const selected = resolveProvider(config)!.toLowerCase() as ProviderName;
+  // resolveProvider will not actually return undefined here -- the
+  // fallback exists only so a future change to either function's
+  // availability logic degrades safely instead of throwing.
+  const selected = (resolveProvider(config) ?? "Ollama").toLowerCase() as ProviderName;
 
   const options: { value: ProviderName; label: string; ready: boolean; reason: string }[] = [
     { value: "ollama", label: "Ollama", ready: ollamaReady, reason: "no endpoint set" },
