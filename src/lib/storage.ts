@@ -29,3 +29,10 @@ export const updateMeetingStatus = (meeting: MeetingMeta) =>
 export const getOrphanedMeetings = () => invoke<MeetingMeta[]>("get_orphaned_meetings");
 
 export const getDataDir = () => invoke<string>("get_data_dir");
+
+// Opens a meeting's summary.md in the system's default handler via a
+// backend command rather than the opener plugin's own `open_path` IPC
+// command directly -- see the doc comment on the Rust `open_summary`
+// command for why (its capability scope is static and can't be extended to
+// an arbitrary configured data directory at runtime).
+export const openSummary = (meetingId: string) => invoke<void>("open_summary", { meetingId });

@@ -79,6 +79,7 @@ pub fn run() {
             commands::storage_commands::update_meeting_status,
             commands::storage_commands::get_orphaned_meetings,
             commands::storage_commands::get_data_dir,
+            commands::storage_commands::open_summary,
             commands::transcription_commands::transcribe_meeting,
             commands::transcription_commands::read_transcript_text,
             commands::summary_commands::summarize_meeting,

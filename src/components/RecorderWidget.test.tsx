@@ -15,15 +15,12 @@ vi.mock("@/lib/storage", () => ({
   updateMeetingStatus: vi.fn(),
   getOrphanedMeetings: vi.fn(),
   getDataDir: vi.fn(),
+  openSummary: vi.fn(),
 }));
 
 vi.mock("@/lib/transcription", () => ({
   transcribeMeeting: vi.fn(),
   onTranscriptionComplete: vi.fn(),
-}));
-
-vi.mock("@tauri-apps/plugin-opener", () => ({
-  openPath: vi.fn(),
 }));
 
 vi.mock("@/lib/config", () => ({
@@ -61,17 +58,16 @@ beforeEach(async () => {
     .mockReset()
     .mockResolvedValue({ output_path: "/tmp/audio.wav", quality_warning: null });
 
-  const { createNewMeeting, updateMeetingStatus, getDataDir } = await import("@/lib/storage");
+  const { createNewMeeting, updateMeetingStatus, getDataDir, openSummary } =
+    await import("@/lib/storage");
   vi.mocked(createNewMeeting).mockReset().mockResolvedValue(fakeMeeting);
   vi.mocked(updateMeetingStatus).mockReset().mockResolvedValue(undefined);
   vi.mocked(getDataDir).mockReset().mockResolvedValue("/home/user/.local/share/meeting-notes");
+  vi.mocked(openSummary).mockReset().mockResolvedValue(undefined);
 
   const { transcribeMeeting, onTranscriptionComplete } = await import("@/lib/transcription");
   vi.mocked(transcribeMeeting).mockReset().mockResolvedValue(undefined);
   vi.mocked(onTranscriptionComplete).mockReset().mockResolvedValue(() => {});
-
-  const { openPath } = await import("@tauri-apps/plugin-opener");
-  vi.mocked(openPath).mockReset().mockResolvedValue(undefined);
 
   const { summarizeMeeting } = await import("@/lib/summary");
   vi.mocked(summarizeMeeting).mockReset().mockResolvedValue({
@@ -499,7 +495,7 @@ describe("RecorderWidget summary integration", () => {
   });
 
   it("opens summary.md externally and returns to idle once the summary resolves", async () => {
-    const { openPath } = await import("@tauri-apps/plugin-opener");
+    const { openSummary } = await import("@/lib/storage");
     const { fire } = await captureTranscriptionCallback();
 
     render(<RecorderWidget />);
@@ -507,11 +503,7 @@ describe("RecorderWidget summary integration", () => {
     fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
     await fire(transcribedMeeting);
 
-    await vi.waitFor(() =>
-      expect(openPath).toHaveBeenCalledWith(
-        `/home/user/.local/share/meeting-notes/meetings/${transcribedMeeting.id}/summary.md`
-      )
-    );
+    await vi.waitFor(() => expect(openSummary).toHaveBeenCalledWith(transcribedMeeting.id));
     expect(await screen.findByRole("button", { name: /start recording/i })).toBeInTheDocument();
   });
 
@@ -630,7 +622,7 @@ describe("RecorderWidget summary failure fallback", () => {
   // -- the transcript is still on disk, so the failure is logged and the
   // widget returns to idle rather than being stuck on "Generating summary…".
   it("logs the failure and returns to idle instead of opening a file", async () => {
-    const { openPath } = await import("@tauri-apps/plugin-opener");
+    const { openSummary } = await import("@/lib/storage");
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     await failSummaryWith(new Error("not_configured"));
 
@@ -639,7 +631,7 @@ describe("RecorderWidget summary failure fallback", () => {
       "Summary generation failed:",
       expect.stringContaining("not_configured")
     );
-    expect(openPath).not.toHaveBeenCalled();
+    expect(openSummary).not.toHaveBeenCalled();
     consoleErrorSpy.mockRestore();
   });
 });
@@ -772,7 +764,7 @@ describe("RecorderWidget provider resolution at summarize time", () => {
   });
 
   it("opens the summary and returns to idle without any picker interaction", async () => {
-    const { openPath } = await import("@tauri-apps/plugin-opener");
+    const { openSummary } = await import("@/lib/storage");
     const { getConfig } = await import("@/lib/config");
     vi.mocked(getConfig).mockResolvedValue({
       claude_api_key: "sk-test",
@@ -786,11 +778,7 @@ describe("RecorderWidget provider resolution at summarize time", () => {
 
     await completeTranscription();
 
-    await vi.waitFor(() =>
-      expect(openPath).toHaveBeenCalledWith(
-        `/home/user/.local/share/meeting-notes/meetings/${fakeMeeting.id}/summary.md`
-      )
-    );
+    await vi.waitFor(() => expect(openSummary).toHaveBeenCalledWith(fakeMeeting.id));
     expect(await screen.findByRole("button", { name: /start recording/i })).toBeInTheDocument();
   });
 });

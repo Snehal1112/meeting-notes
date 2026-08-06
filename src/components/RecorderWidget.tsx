@@ -6,6 +6,7 @@ import { MeetingTypePicker } from "@/components/MeetingTypePicker";
 import {
   createNewMeeting,
   getDataDir,
+  openSummary,
   updateMeetingStatus,
   type MeetingMeta,
   type MeetingType,
@@ -16,7 +17,6 @@ import { summarizeMeeting, resolveProvider, type ProviderKind } from "@/lib/summ
 import { Waveform } from "@/components/Waveform";
 import { ProviderPicker, type ProviderName } from "@/components/ProviderPicker";
 import { startWindowDrag } from "@/lib/drag";
-import { openPath } from "@tauri-apps/plugin-opener";
 import { Mic, MicOff, Square, AlertTriangle } from "lucide-react";
 
 export type WidgetState = "idle" | "recording" | "processing";
@@ -134,10 +134,8 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
       // observably identical to the pre-picker call site.
       provider ? await summarizeMeeting(meetingId, provider) : await summarizeMeeting(meetingId);
       if (summarizeRunRef.current !== run) return;
-      const dataDir = await getDataDir();
-      const summaryPath = `${dataDir}/meetings/${meetingId}/summary.md`;
       try {
-        await openPath(summaryPath);
+        await openSummary(meetingId);
       } catch (err) {
         // Opening externally failing shouldn't strand the user on a stuck
         // Processing pill — the file is still on disk even if it couldn't
