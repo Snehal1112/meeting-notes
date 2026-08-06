@@ -4,9 +4,15 @@ import { useAutoResizeWindow } from "./useAutoResizeWindow";
 
 const setSize = vi.fn((_size: { width: number; height: number }) => Promise.resolve());
 const currentMonitor = vi.fn();
+const innerSize = vi.fn();
+const scaleFactor = vi.fn();
 
 vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => ({ setSize }),
+  getCurrentWindow: () => ({
+    setSize,
+    innerSize: () => innerSize(),
+    scaleFactor: () => scaleFactor(),
+  }),
   currentMonitor: () => currentMonitor(),
 }));
 
@@ -40,8 +46,30 @@ beforeEach(() => {
   // Default: no monitor info (exercises the fallback path unless a test
   // overrides this with mockResolvedValueOnce for a specific monitor shape).
   currentMonitor.mockReset().mockResolvedValue(null);
+  // A fixed "current window size" baseline, distinct from every test's
+  // computed target height, so animations in this file exercise real
+  // interpolation instead of trivially starting already-at-target.
+  innerSize.mockReset().mockResolvedValue({ toLogical: () => ({ width: 400, height: 300 }) });
+  scaleFactor.mockReset().mockResolvedValue(1);
   FakeResizeObserver.instances = [];
   vi.stubGlobal("ResizeObserver", FakeResizeObserver);
+  // jsdom's real requestAnimationFrame timestamps each callback with
+  // `performance.now() - <time the jsdom window was constructed>`, not raw
+  // performance.now() -- a different clock origin than animateResize's own
+  // `performance.now()`-based `start` (see windowAnimation.ts). In a real
+  // browser/webview these two share one origin, so this never surfaces
+  // there; under Vitest's default parallel pool, workers are reused across
+  // test files, so "time since this window was constructed" can already be
+  // arbitrarily large by the time this file's tests run, corrupting
+  // animateResize's elapsed-time math with a large, non-deterministic
+  // offset. Rerouting through a real (but origin-consistent) setTimeout
+  // keeps these tests' existing real-async/waitFor-based flow working while
+  // eliminating that mismatch -- mirroring the fully-mocked rAF/performance
+  // stand-in windowAnimation.test.ts already uses for the same function.
+  vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) =>
+    setTimeout(() => cb(performance.now()), 0)
+  );
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => clearTimeout(id));
   root = document.createElement("div");
   root.appendChild(document.createElement("div"));
   document.body.appendChild(root);
@@ -245,15 +273,14 @@ describe("useAutoResizeWindow", () => {
     renderHook(() => useAutoResizeWindow(ref, 400, 300, true));
 
     FakeResizeObserver.instances[0]!.fire();
-    await waitFor(() => expect(setSize).toHaveBeenCalledTimes(1));
-    const firstHeight = (setSize.mock.calls[0]![0] as { height: number }).height;
+    await waitFor(() =>
+      expect(setSize).toHaveBeenLastCalledWith(expect.objectContaining({ height: 850 }))
+    );
 
     FakeResizeObserver.instances[0]!.fire();
-    await waitFor(() => expect(setSize).toHaveBeenCalledTimes(2));
-    const secondHeight = (setSize.mock.calls[1]![0] as { height: number }).height;
-
-    expect(firstHeight).toBe(850);
-    expect(secondHeight).toBe(firstHeight);
+    await waitFor(() =>
+      expect(setSize).toHaveBeenLastCalledWith(expect.objectContaining({ height: 850 }))
+    );
   });
 
   it("clears the explicit height when the hook becomes disabled", async () => {
@@ -318,5 +345,41 @@ describe("useAutoResizeWindow", () => {
     FakeResizeObserver.instances[1]!.fire();
 
     await waitFor(() => expect(root.style.height).toBe("300px"));
+  });
+
+  // Regression test for a failure mode that only exists once resizes
+  // animate: two overlapping resize animations (one still easing toward a
+  // now-stale target) must not fight each other. Exercises the same
+  // isStale/latestRun guard already proven above for the async
+  // currentMonitor() await, now also passed into animateResize as its
+  // cancellation check.
+  it("cancels an in-flight resize animation when new content is measured before it settles", async () => {
+    currentMonitor.mockResolvedValue(fakeMonitor(1000));
+    Object.defineProperty(root.children[0]!, "scrollHeight", { value: 500, configurable: true });
+
+    renderHook(() => useAutoResizeWindow(ref, 400, 300, true));
+
+    FakeResizeObserver.instances[0]!.fire();
+    // Let the first animation begin (easing from 300 toward 500) without
+    // waiting for it to fully settle.
+    await waitFor(() => expect(setSize).toHaveBeenCalled());
+
+    // New, shorter content arrives mid-animation. 200 is below this hook's
+    // own 300px minHeight floor (see the renderHook call above), so the
+    // settled target clamps to 300 -- still a different, smaller target than
+    // the first measurement's 500, which is all this test needs to exercise
+    // cross-measurement cancellation.
+    Object.defineProperty(root.children[0]!, "scrollHeight", { value: 200, configurable: true });
+    FakeResizeObserver.instances[0]!.fire();
+
+    await waitFor(() =>
+      expect(setSize).toHaveBeenLastCalledWith(expect.objectContaining({ height: 300 }))
+    );
+
+    // Give the cancelled first animation's remaining frames time to fire
+    // (its full 180ms duration, generously padded) -- it must never
+    // overwrite the second animation's settled value.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(setSize).toHaveBeenLastCalledWith(expect.objectContaining({ height: 300 }));
   });
 });

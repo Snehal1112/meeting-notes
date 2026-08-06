@@ -152,8 +152,12 @@ function App() {
           ? "h-screen w-screen flex items-center justify-center bg-transparent"
           : // shadow-widget is the design-token elevation that lifts the
             // full-chrome container off the transparent OS window; the pill
-            // carries its own smaller shadow-sm instead.
-            "min-h-[300px] flex flex-col rounded-lg overflow-hidden border shadow-widget bg-background"
+            // carries its own smaller shadow-sm instead. The transition
+            // matches animateResize's 180ms ease-out-cubic timing (see
+            // windowAnimation.ts) so this element's JS-set explicit height
+            // (useAutoResizeWindow.ts) animates in lockstep with the
+            // window's own JS-driven resize instead of snapping ahead of it.
+            "min-h-[300px] flex flex-col rounded-lg overflow-hidden border shadow-widget bg-background transition-[height] duration-[180ms] ease-[cubic-bezier(0.33,1,0.68,1)]"
       }
     >
       {!isPill && <TitleBar onOpenSettings={() => setShowConfigDialog(true)} />}

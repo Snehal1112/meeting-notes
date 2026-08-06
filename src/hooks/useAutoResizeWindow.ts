@@ -1,6 +1,6 @@
 import { useEffect, type RefObject } from "react";
-import { getCurrentWindow, currentMonitor } from "@tauri-apps/api/window";
-import { LogicalSize } from "@tauri-apps/api/dpi";
+import { currentMonitor } from "@tauri-apps/api/window";
+import { animateResize, currentWindowSize } from "@/lib/windowAnimation";
 
 // Resizes the OS window to match the content's natural height, so panels
 // taller than the widget's default 300px (e.g. the config panel) grow the
@@ -46,19 +46,28 @@ export function useAutoResizeWindow(
     const el = ref.current;
     if (!el) return;
 
-    // measure() awaits a real Tauri IPC round-trip (currentMonitor()), so it
-    // can still be suspended when this effect run is torn down -- e.g. the
-    // widget leaves Idle/Done for the Recording/Processing pill mid-measure.
-    // `cancelled` stops a torn-down run from writing a stale size after the
-    // fact; `latestRun` stops an older in-flight measure() from clobbering a
-    // newer one if the ResizeObserver fires twice before the first resolves
-    // (out-of-order resolution). Both are needed -- they guard different
-    // failure modes.
+    // measure() awaits real Tauri IPC round-trips (currentMonitor(),
+    // currentWindowSize()), so it can still be suspended when this effect run
+    // is torn down -- e.g. the widget leaves Idle/Done for the
+    // Recording/Processing pill mid-measure. `cancelled` stops a torn-down
+    // run from writing a stale size after the fact; `latestRun` stops an
+    // older in-flight measure() from clobbering a newer one if the
+    // ResizeObserver fires twice before the first resolves (out-of-order
+    // resolution). Both are needed -- they guard different failure modes.
+    // The same staleness check also cancels an in-flight resize *animation*:
+    // if content changes again before the previous animation finishes, the
+    // old animation stops on its next frame instead of fighting the new one.
     let cancelled = false;
     let latestRun = 0;
 
     const measure = async () => {
       const run = ++latestRun;
+      // Shared by every staleness check below, and passed as animateResize's
+      // cancellation check: if a newer measure() starts (a fresh
+      // ResizeObserver fire, or this effect tearing down), an in-flight
+      // resize animation from an older run stops on its next frame instead
+      // of fighting the newer target.
+      const isStale = () => cancelled || run !== latestRun;
 
       // Read scrollHeight with any previously-applied pin lifted first,
       // then restore it immediately -- synchronously, so no frame is ever
@@ -88,16 +97,28 @@ export function useAutoResizeWindow(
 
       // This run was torn down or superseded while awaiting currentMonitor().
       // Do not write a stale size.
-      if (cancelled || run !== latestRun) return;
+      if (isStale()) return;
 
       const heightCap = monitor
         ? monitor.workArea.size.toLogical(monitor.scaleFactor).height * HEIGHT_CAP_FRACTION
         : FALLBACK_HEIGHT_CAP;
 
       const height = Math.min(heightCap, Math.max(minHeight, total));
-      getCurrentWindow()
-        .setSize(new LogicalSize(width, height))
-        .catch((err) => console.error("useAutoResizeWindow: setSize failed", err));
+
+      // Eases from wherever the window actually is right now to the newly
+      // computed target instead of snapping -- see windowAnimation.ts. A
+      // failure here (e.g. no real Tauri runtime) falls back to animating
+      // from the target to itself, which is a same-value no-op rather than
+      // a crash.
+      const from = await currentWindowSize().catch((err) => {
+        console.error("useAutoResizeWindow: could not read current window size", err);
+        return { width, height };
+      });
+      if (isStale()) return;
+
+      animateResize(from, { width, height }, isStale).catch((err) =>
+        console.error("useAutoResizeWindow: animateResize failed", err)
+      );
 
       // Gives the DOM an explicit, JS-computed bound equal to the same value
       // just sent to the OS window -- deliberately never a viewport-relative
@@ -106,7 +127,10 @@ export function useAutoResizeWindow(
       // feed back into the next measurement's own reading of `total`. This
       // is what lets RecorderWidget.tsx's already-present `overflow-y-auto`
       // Tabs content actually activate once content exceeds the cap,
-      // instead of silently overflowing past the window's visible edge.
+      // instead of silently overflowing past the window's visible edge. Set
+      // synchronously here (not animated in JS) -- App.tsx gives the root
+      // element a matching CSS transition so this value change animates in
+      // lockstep with the JS-driven window resize above.
       el.style.height = `${height}px`;
     };
 
