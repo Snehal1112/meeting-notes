@@ -35,6 +35,8 @@ jobs:
 
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
 
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
@@ -47,6 +49,12 @@ jobs:
 
       - name: Frontend build
         run: bun run build
+
+      - name: Rust tests
+        run: cargo test --workspace --manifest-path src-tauri/Cargo.toml
+
+      - name: Frontend tests
+        run: bunx vitest run
 
       - name: Tauri build
         uses: tauri-apps/tauri-action@v0
