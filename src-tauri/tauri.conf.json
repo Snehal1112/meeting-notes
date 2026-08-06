@@ -31,6 +31,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": false,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -38,5 +39,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERDMUNFNUU5REMwRkM2QzgKUldUSXhnL2M2ZVVjM0dTV3lraU5hQ2FmTFlqUzhPOVh1RkIrSlhBczFYVVVoc3BKcnVZRUs1SHoK",
+      "endpoints": [
+        "https://github.com/Snehal1112/meeting-notes/releases/latest/download/latest.json"
+      ]
+    }
   }
 }
