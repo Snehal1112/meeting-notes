@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { startRecording, stopRecording } from "@/lib/recording";
 import { MeetingTypePicker } from "@/components/MeetingTypePicker";
 import {
@@ -13,7 +12,7 @@ import {
 } from "@/lib/storage";
 import { transcribeMeeting, onTranscriptionComplete } from "@/lib/transcription";
 import { getConfig, setSummaryProvider, type AppConfig } from "@/lib/config";
-import { summarizeMeeting, toProviderKind, type ProviderKind } from "@/lib/summary";
+import { summarizeMeeting, resolveProvider, type ProviderKind } from "@/lib/summary";
 import { Waveform } from "@/components/Waveform";
 import { ProviderPicker, type ProviderName } from "@/components/ProviderPicker";
 import { startWindowDrag } from "@/lib/drag";
@@ -21,11 +20,7 @@ import { openPath } from "@tauri-apps/plugin-opener";
 import { Mic, MicOff, Square, AlertTriangle } from "lucide-react";
 
 export type WidgetState = "idle" | "recording" | "processing";
-// "choosing_provider" is a distinct sub-status from "summarizing": it's the
-// window between transcription finishing and the user confirming which
-// provider to use for this run, shown only when more than one provider is
-// configured. "summarizing" still means "the call is actually in flight".
-type ProcessingStatus = "transcribing" | "choosing_provider" | "summarizing";
+type ProcessingStatus = "transcribing" | "summarizing";
 
 interface RecorderWidgetProps {
   /// An interrupted recording from a previous session to pick up, as offered
@@ -51,13 +46,6 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatus>("transcribing");
   const [busy, setBusy] = useState(false);
   const [config, setConfig] = useState<AppConfig | null>(null);
-  // Ephemeral, per-run provider choice for the summary about to be
-  // generated — distinct from ProviderPicker/handleProviderChange above,
-  // which set a persistent default saved to config. These are only
-  // populated (and only shown) when transcription just finished with more
-  // than one provider configured; they are not persisted anywhere.
-  const [availableProviders, setAvailableProviders] = useState<ProviderKind[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState<ProviderKind | null>(null);
   const currentMeetingRef = useRef<MeetingMeta | null>(null);
   // Guards runSummarization against a stale run clobbering state the widget
   // has already moved on to (e.g. a new recording started while a previous
@@ -131,10 +119,7 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
 
   // Actually calls summarize_meeting, opens the generated summary.md in the
   // system's default handler, and returns the widget to idle. Split out
-  // from the processing effect below so it can be invoked either
-  // immediately (0 or 1 provider configured — today's behavior, unchanged)
-  // or later, from the picker's confirm button (2 providers configured), by
-  // which point the effect that discovered `meetingId` has already returned.
+  // from the processing effect below purely for readability.
   const runSummarization = useCallback(async (meetingId: string, provider?: ProviderKind) => {
     // Claim this as the current run. If summarizeRunRef.current no longer
     // matches `run` by the time an awaited call below resolves, the widget
@@ -202,52 +187,13 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
         });
         if (cancelled) return;
 
-        const available: ProviderKind[] = cfg
-          ? [
-              ...(cfg.claude_api_key ? (["Claude"] as const) : []),
-              ...(cfg.ollama_endpoint ? (["Ollama"] as const) : []),
-            ]
-          : [];
-        setAvailableProviders(available);
-
-        if (available.length === 2) {
-          // Both providers configured: don't auto-select — let the user
-          // choose, and don't call summarizeMeeting until they confirm.
-          // Because the call doesn't start until then, changing the
-          // selection beforehand always changes which provider actually
-          // runs; no cancellation of an in-flight call is needed.
-          //
-          // The default seeds from the user's persisted preference
-          // (config.summary_provider, settable via the idle-state
-          // ProviderPicker) when it names a provider that's actually
-          // available this run, falling back to the same Ollama-preferring
-          // order select_provider_kind uses on the Rust side (see
-          // crates/meeting-notes-summary/src/lib.rs) when there is no
-          // persisted preference or it names something unavailable. Picking
-          // `available[0]` here would silently prefer Claude instead, since
-          // `available` is always built Claude-first above — reversing the
-          // backend's deliberate Ollama-first default and making a user's
-          // explicit Ollama choice dead config the moment both are
-          // configured.
-          const persisted = toProviderKind(cfg?.summary_provider ?? null);
-          const defaultProvider =
-            persisted && available.includes(persisted)
-              ? persisted
-              : available.includes("Ollama")
-                ? "Ollama"
-                : available[0];
-          setSelectedProvider(defaultProvider);
-          setProcessingStatus("choosing_provider");
-          return;
-        }
-
-        // 0 or 1 provider configured: unchanged from before — proceed
-        // immediately with the single available provider (or with none at
-        // all, letting the "not_configured" error path fire as usual).
-        // available[0] is undefined in the zero-provider case; see
-        // runSummarization for why that doesn't reach summarizeMeeting as an
-        // explicit extra argument.
-        await runSummarization(updated.id, available[0]);
+        // The provider was already effectively chosen on the Idle screen —
+        // ProviderPicker shows the same resolution as selected before the
+        // recording even started — so summarization starts immediately
+        // rather than asking again here. undefined (nothing configured)
+        // reaches summarizeMeeting as no explicit override, letting the
+        // "not_configured" error path fire as usual.
+        await runSummarization(updated.id, resolveProvider(cfg));
       });
       unlisten = stopListening;
       if (cancelled) {
@@ -279,15 +225,6 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
     } catch (err) {
       console.error("Could not save the provider choice:", errorMessage(err));
     }
-  };
-
-  // Fires only from the picker shown in the "choosing_provider" sub-status
-  // (two providers configured) — this is the moment the deferred
-  // summarize_meeting call actually starts, using whatever was selected.
-  const handleConfirmProvider = () => {
-    const meeting = currentMeetingRef.current;
-    if (!meeting || !selectedProvider) return;
-    void runSummarization(meeting.id, selectedProvider);
   };
 
   const handleStart = async () => {
@@ -460,9 +397,8 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
       <div
         data-tauri-drag-region
         // Same reasoning as the Recording pill above. requireSelfTarget
-        // matters more here: this pill can hold a Retry button, a provider
-        // Select and a Generate Summary button, all of which would otherwise
-        // have their mousedown turned into a window drag on the way up.
+        // matters more here: this pill can hold a Retry button, which would
+        // otherwise have its mousedown turned into a window drag on the way up.
         onMouseDown={(e) => startWindowDrag(e, { requireSelfTarget: true })}
         className="h-full w-full flex items-center justify-center gap-2 bg-background border rounded-full px-3 py-2 shadow-sm text-sm text-muted-foreground"
       >
@@ -498,44 +434,6 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
               className="flex-shrink-0"
             >
               Retry
-            </Button>
-          </div>
-        ) : processingStatus === "choosing_provider" ? (
-          // Shown only when transcription just finished and more than one
-          // provider is configured — see the processing effect above. The
-          // summarize_meeting call is deliberately deferred until Generate
-          // Summary is clicked, so switching the selection here always
-          // changes which provider actually runs.
-          <div className="flex items-center gap-1.5">
-            <Select
-              value={selectedProvider ?? undefined}
-              onValueChange={(next) => setSelectedProvider(next as ProviderKind)}
-            >
-              {/* Height comes from the size prop, not a className:
-                  SelectTrigger's own data-[size=*] rules outrank a plain
-                  h-* utility, so an override there is silently dropped. */}
-              <SelectTrigger
-                size="sm"
-                aria-label="Summary provider"
-                className="text-xs w-[88px] flex-shrink-0"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {availableProviders.map((provider) => (
-                  <SelectItem key={provider} value={provider}>
-                    {provider}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              size="xs"
-              onClick={handleConfirmProvider}
-              disabled={!selectedProvider}
-              className="flex-shrink-0"
-            >
-              Generate Summary
             </Button>
           </div>
         ) : (
