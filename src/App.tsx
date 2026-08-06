@@ -1,68 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { LogicalSize } from "@tauri-apps/api/dpi";
 import { TitleBar } from "@/components/TitleBar";
 import { ConfigDialog } from "@/components/ConfigDialog";
 import { RecorderWidget, type WidgetState } from "@/components/RecorderWidget";
 import { ResumePrompt } from "@/components/ResumePrompt";
 import { configNeedsSetup, saveConfig, type AppConfig } from "@/lib/config";
 import { getOrphanedMeetings, type MeetingMeta } from "@/lib/storage";
+import { animateResize, currentWindowSize } from "@/lib/windowAnimation";
 import { useAutoResizeWindow } from "@/hooks/useAutoResizeWindow";
-
-// Tauri's setSize() has no built-in transition -- it snaps instantly. To make
-// the Recording <-> Processing pill resize feel intentional rather than
-// jarring, step through intermediate sizes over a short duration with an
-// ease-out curve. This is a manual animation of the actual OS window frame,
-// not a CSS transition (CSS can't touch native window dimensions, only
-// content drawn inside them).
-//
-// Caveat: stepping setSize() at animation-frame rate can look stepped/janky
-// rather than smooth on some Linux window managers (particularly X11) --
-// this could not be visually verified in this implementing environment (no
-// display/Tauri runtime available here). If it looks janky in practice, the
-// fallback is a single non-animated setSize() call straight to the target.
-function easeOutCubic(t: number): number {
-  return 1 - Math.pow(1 - t, 3);
-}
-
-// `isCancelled` is re-checked on every frame, before writing a size and before
-// scheduling the next one, so an abandoned animation stops on its very next
-// frame instead of running to completion. Without it a fast state change
-// (recording -> processing inside the 180ms window, or handleStop failing
-// straight back to idle) would leave two animations writing conflicting sizes
-// to the same window at animation-frame rate.
-async function animateResize(
-  from: { width: number; height: number },
-  to: { width: number; height: number },
-  isCancelled: () => boolean = () => false,
-  durationMs = 180
-) {
-  const win = getCurrentWindow();
-  const start = performance.now();
-
-  return new Promise<void>((resolve) => {
-    function step(now: number) {
-      if (isCancelled()) {
-        resolve();
-        return;
-      }
-      const elapsed = now - start;
-      const t = Math.min(elapsed / durationMs, 1);
-      const eased = easeOutCubic(t);
-      const width = from.width + (to.width - from.width) * eased;
-      const height = from.height + (to.height - from.height) * eased;
-      win
-        .setSize(new LogicalSize(width, height))
-        .catch((err) => console.error("animateResize: setSize failed", err));
-      if (t < 1 && !isCancelled()) {
-        requestAnimationFrame(step);
-      } else {
-        resolve();
-      }
-    }
-    requestAnimationFrame(step);
-  });
-}
 
 // Fixed pill sizes for the chrome-less Recording/Processing window. Idle and
 // Done are deliberately not represented here -- their sizing stays owned by
@@ -85,20 +29,6 @@ const PILL_SIZES: Record<"recording" | "processing", { width: number; height: nu
   // room to avoid trading a horizontal overflow bug for a vertical one.
   processing: { width: 280, height: 64 },
 };
-
-// Reads the window's actual current logical size, so the resize animation
-// can ease from wherever the window really is right now -- e.g. the ~400x300
-// full-chrome size on the very first Idle/Done -> Recording transition, or
-// whatever pill size a prior Recording<->Processing hop left it at. Querying
-// fresh each time (rather than caching the last pill size in a ref) means
-// there is nothing to go stale across an Idle/Done detour in between
-// recordings (processing -> done -> idle -> recording again).
-async function currentWindowSize(): Promise<{ width: number; height: number }> {
-  const win = getCurrentWindow();
-  const [physical, scaleFactor] = await Promise.all([win.innerSize(), win.scaleFactor()]);
-  const logical = physical.toLogical(scaleFactor);
-  return { width: logical.width, height: logical.height };
-}
 
 function App() {
   const [showConfigDialog, setShowConfigDialog] = useState(false);
