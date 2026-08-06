@@ -35,9 +35,8 @@ describe("startWindowDrag", () => {
   });
 
   // The Recording/Processing pills are the only drag surface in their states
-  // and they hold real controls (Stop, Retry, the provider Select, Generate
-  // Summary). A mousedown bubbling up from one of those must not be turned
-  // into a window drag.
+  // and they hold real controls (Stop, Retry). A mousedown bubbling up from
+  // one of those must not be turned into a window drag.
   it("ignores a press that bubbled up from a child when requireSelfTarget is set", () => {
     startWindowDrag(mouseDown({ onSelf: false }), { requireSelfTarget: true });
     expect(startDragging).not.toHaveBeenCalled();
