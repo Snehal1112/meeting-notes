@@ -121,14 +121,16 @@ function App() {
   // why an already-created ResizeObserver keeps firing regardless, and would
   // pull the window back to 400x300 mid-animation.
   //
-  // widgetState is also passed as remeasureKey: once the root's height is
-  // pinned (e.g. after a long Done-state summary), its flex-1 children
-  // stretch to fill that space rather than shrinking to content, so
-  // "New Recording" swapping Done's content for Idle's much shorter content
-  // never changes any observed element's own box size -- ResizeObserver has
-  // nothing to react to on its own. Passing widgetState forces a fresh
-  // measurement on every such transition instead.
-  useAutoResizeWindow(rootRef, 400, 300, !isPill, widgetState);
+  // widgetState and showConfigDialog are both passed as remeasureKey: once
+  // the root's height is pinned (e.g. after a long Done-state summary, or
+  // after the taller ConfigDialog panel), its flex-1 children stretch to
+  // fill that space rather than shrinking to content, so swapping in
+  // shorter content -- "New Recording" replacing Done with Idle, or closing
+  // ConfigDialog back to the RecorderWidget -- never changes any observed
+  // element's own box size on its own -- ResizeObserver has nothing to
+  // react to. Combining both into one key forces a fresh measurement on
+  // every such transition instead.
+  useAutoResizeWindow(rootRef, 400, 300, !isPill, `${widgetState}:${showConfigDialog}`);
 
   // Drives the pill's own size during Recording/Processing only. Idle/Done
   // intentionally do not run this -- see PILL_SIZES above.

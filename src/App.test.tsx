@@ -203,7 +203,7 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
       400,
       300,
       true,
-      "idle"
+      "idle:false"
     );
 
     fireEvent.click(screen.getByRole("button", { name: "go-recording" }));
@@ -212,7 +212,7 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
       400,
       300,
       false,
-      "recording"
+      "recording:false"
     );
 
     fireEvent.click(screen.getByRole("button", { name: "go-processing" }));
@@ -221,7 +221,7 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
       400,
       300,
       false,
-      "processing"
+      "processing:false"
     );
 
     // Back out of the pill: the hook must be handed sizing again, or the
@@ -237,7 +237,39 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
       400,
       300,
       true,
-      "idle"
+      "idle:false"
+    );
+  });
+
+  // Regression test: closing the (taller) ConfigDialog back to the
+  // (shorter) RecorderWidget swaps the root's DOM children without
+  // widgetState ever changing. Without showConfigDialog folded into
+  // remeasureKey, the hook never tears down and re-measures, so the window
+  // stays pinned at the config panel's height instead of shrinking back
+  // down to fit the idle widget.
+  it("forces a fresh measurement when the settings panel opens and closes", async () => {
+    const { configNeedsSetup } = await import("@/lib/config");
+    vi.mocked(configNeedsSetup).mockResolvedValue(true);
+    const { useAutoResizeWindow } = await import("@/hooks/useAutoResizeWindow");
+
+    render(<App />);
+    await screen.findByText(/set up meeting notes/i);
+    expect(vi.mocked(useAutoResizeWindow)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      400,
+      300,
+      true,
+      "idle:true"
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /skip/i }));
+    await screen.findByTestId("recorder");
+    expect(vi.mocked(useAutoResizeWindow)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      400,
+      300,
+      true,
+      "idle:false"
     );
   });
 
