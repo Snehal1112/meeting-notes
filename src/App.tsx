@@ -7,6 +7,7 @@ import { configNeedsSetup, saveConfig, type AppConfig } from "@/lib/config";
 import { getOrphanedMeetings, type MeetingMeta } from "@/lib/storage";
 import { animateResize, currentWindowSize } from "@/lib/windowAnimation";
 import { useAutoResizeWindow } from "@/hooks/useAutoResizeWindow";
+import { setClickThroughTracking } from "@/lib/window";
 
 // Fixed pill sizes for the chrome-less Recording/Processing window. Idle and
 // Done are deliberately not represented here -- their sizing stays owned by
@@ -91,6 +92,18 @@ function App() {
       resizeRunRef.current++;
     };
   }, [widgetState]);
+
+  // Makes the pill's transparent corners (outside its rounded-full shape,
+  // but still inside the actual rectangular OS window) click-through --
+  // see src-tauri/src/commands/window_commands.rs for why this needs a
+  // Rust-side poll loop rather than a JS mousemove listener. Idle is
+  // deliberately excluded: its corner radius is small enough (rounded-lg)
+  // that the same problem there is not worth the tracking overhead.
+  useEffect(() => {
+    void setClickThroughTracking(isPill).catch((err) =>
+      console.error("Could not toggle click-through tracking:", err)
+    );
+  }, [isPill]);
 
   useEffect(() => {
     configNeedsSetup().then(setShowConfigDialog);

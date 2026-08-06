@@ -28,6 +28,10 @@ vi.mock("@/lib/storage", () => ({
   getDataDir: vi.fn(),
 }));
 
+vi.mock("@/lib/window", () => ({
+  setClickThroughTracking: vi.fn().mockResolvedValue(undefined),
+}));
+
 // The real hook and title bar call into Tauri's window APIs, which do not
 // exist in jsdom. Neither is under test here.
 vi.mock("@/hooks/useAutoResizeWindow", () => ({ useAutoResizeWindow: vi.fn() }));
@@ -91,6 +95,9 @@ beforeEach(async () => {
   const { getOrphanedMeetings, getDataDir } = await import("@/lib/storage");
   vi.mocked(getOrphanedMeetings).mockReset().mockResolvedValue([]);
   vi.mocked(getDataDir).mockReset().mockResolvedValue("/home/user/.local/share/meeting-notes");
+
+  const { setClickThroughTracking } = await import("@/lib/window");
+  vi.mocked(setClickThroughTracking).mockReset().mockResolvedValue(undefined);
 
   recorderMountCount = 0;
 });
@@ -283,5 +290,38 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
 
     expect(await screen.findByTestId("recorder-mount-id")).toHaveTextContent(beforeId!);
     expect(recorderMountCount).toBe(1);
+  });
+});
+
+describe("App click-through tracking", () => {
+  it("activates click-through tracking when entering the Recording pill", async () => {
+    const { setClickThroughTracking } = await import("@/lib/window");
+    render(<App />);
+    await screen.findByTestId("recorder");
+
+    fireEvent.click(screen.getByRole("button", { name: "go-recording" }));
+
+    await vi.waitFor(() => expect(setClickThroughTracking).toHaveBeenCalledWith(true));
+  });
+
+  it("deactivates click-through tracking when returning to idle", async () => {
+    const { setClickThroughTracking } = await import("@/lib/window");
+    render(<App />);
+    await screen.findByTestId("recorder");
+
+    fireEvent.click(screen.getByRole("button", { name: "go-recording" }));
+    await vi.waitFor(() => expect(setClickThroughTracking).toHaveBeenCalledWith(true));
+
+    fireEvent.click(await screen.findByRole("button", { name: "go-idle" }));
+    await vi.waitFor(() => expect(setClickThroughTracking).toHaveBeenLastCalledWith(false));
+  });
+
+  it("does not activate click-through tracking for the Idle state on initial render", async () => {
+    const { setClickThroughTracking } = await import("@/lib/window");
+    render(<App />);
+    await screen.findByTestId("recorder");
+
+    await vi.waitFor(() => expect(setClickThroughTracking).toHaveBeenCalledWith(false));
+    expect(setClickThroughTracking).not.toHaveBeenCalledWith(true);
   });
 });
