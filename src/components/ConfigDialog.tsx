@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { getConfig, setDataDir, type AppConfig } from "@/lib/config";
+import { getRawConfig, setDataDir, type AppConfig } from "@/lib/config";
 import { getDataDir } from "@/lib/storage";
 import { countMeetingsAt, migrateMeetings, pickFolder } from "@/lib/dataDir";
 
@@ -60,7 +60,7 @@ export function ConfigDialog({ open, onSave, onSkip }: ConfigDialogProps) {
   useEffect(() => {
     if (!open) return;
     setStorageError(null);
-    getConfig().then((config) => {
+    getRawConfig().then((config) => {
       setClaudeApiKey(config.claude_api_key ?? "");
       setOllamaEndpoint(config.ollama_endpoint ?? "");
       setOllamaModel(config.ollama_model ?? "");

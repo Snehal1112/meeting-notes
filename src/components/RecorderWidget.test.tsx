@@ -318,38 +318,35 @@ describe("RecorderWidget transcription integration", () => {
     fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
     fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
     await vi.waitFor(() =>
-      expect(transcribeMeeting).toHaveBeenCalledWith(
-        expect.objectContaining({ id: fakeMeeting.id }),
-        "small.en"
-      )
+      expect(transcribeMeeting).toHaveBeenCalledWith(fakeMeeting.id, "small.en")
     );
   });
 
   // Regression test for a bug where handleStop sent the just-computed
   // {status: "Transcribing", duration_seconds} object to updateMeetingStatus
-  // over IPC but never wrote it back into currentMeetingRef.current. The
-  // transcription effect then read the same stale ref (still
-  // status: "Recording", duration_seconds: null from meeting creation) and
-  // handed it to transcribeMeeting, whose Rust side does a full-record index
-  // replace — silently reverting the update that updateMeetingStatus had
-  // just persisted. Asserting only `id` (as the tests above do) doesn't
-  // catch this; the fields that actually got clobbered must be asserted.
-  it("passes the up-to-date status and duration to transcribeMeeting, not the stale pre-stop meeting", async () => {
-    const { transcribeMeeting } = await import("@/lib/transcription");
+  // over IPC but never wrote it back into currentMeetingRef.current. Now that
+  // transcribe_meeting only takes a meeting id (the Rust side re-fetches the
+  // rest from the index rather than trusting a client-supplied MeetingMeta),
+  // transcribeMeeting itself can no longer observe stale status/duration —
+  // so this asserts the same fresh values against updateMeetingStatus
+  // instead, the other call in this same code path that still takes the
+  // full MeetingMeta and would previously have persisted a clobbered record
+  // if currentMeetingRef were stale at the point it's called.
+  it("passes the up-to-date status and duration to updateMeetingStatus, not the stale pre-stop meeting", async () => {
+    const { updateMeetingStatus } = await import("@/lib/storage");
     render(<RecorderWidget />);
     fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
     fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
     await vi.waitFor(() =>
-      expect(transcribeMeeting).toHaveBeenCalledWith(
+      expect(updateMeetingStatus).toHaveBeenCalledWith(
         expect.objectContaining({
           id: fakeMeeting.id,
           status: "Transcribing",
           duration_seconds: expect.any(Number),
-        }),
-        expect.any(String)
+        })
       )
     );
-    const [passedMeeting] = vi.mocked(transcribeMeeting).mock.calls[0]!;
+    const [passedMeeting] = vi.mocked(updateMeetingStatus).mock.calls[0]!;
     expect(passedMeeting.status).not.toBe("Recording");
     expect(passedMeeting.duration_seconds).not.toBeNull();
   });
@@ -370,7 +367,7 @@ describe("RecorderWidget transcription integration", () => {
     fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
     fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
     await vi.waitFor(() =>
-      expect(transcribeMeeting).toHaveBeenCalledWith(expect.objectContaining({ id: fakeMeeting.id }), "base.en")
+      expect(transcribeMeeting).toHaveBeenCalledWith(fakeMeeting.id, "base.en")
     );
   });
 
@@ -682,10 +679,7 @@ describe("RecorderWidget resuming an interrupted recording", () => {
     render(<RecorderWidget resumeMeeting={interrupted} />);
 
     await vi.waitFor(() =>
-      expect(transcribeMeeting).toHaveBeenCalledWith(
-        expect.objectContaining({ id: interrupted.id }),
-        "base.en"
-      )
+      expect(transcribeMeeting).toHaveBeenCalledWith(interrupted.id, "base.en")
     );
     // Resuming reuses the existing meeting directory and its partial
     // audio.wav; creating a new meeting would orphan that recording.

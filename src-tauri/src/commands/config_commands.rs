@@ -5,6 +5,19 @@ pub fn get_config() -> Config {
     resolve_config()
 }
 
+/// Returns the raw persisted config, without environment values merged in.
+///
+/// `ConfigDialog` pre-fills its form from this instead of `get_config`: the
+/// resolved config returned by `get_config` has environment values merged
+/// in, so pre-filling from it would let an env-only secret (e.g.
+/// `MEETING_NOTES_CLAUDE_API_KEY`) enter the form's state -- and from there,
+/// round-trip right back out through Save into the plaintext config file,
+/// even if the user only touched an unrelated field.
+#[tauri::command]
+pub fn get_raw_config() -> Config {
+    load_from_file()
+}
+
 #[tauri::command]
 pub fn save_config(config: Config) -> Result<(), String> {
     save_to_file(&config).map_err(|e| e.to_string())

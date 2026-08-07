@@ -233,7 +233,11 @@ function App() {
         <ConfigDialog open={showConfigDialog} onSave={handleSave} onSkip={handleSkip} />
       )}
       {!isPill && !showConfigDialog && !showHistory && (
-        <ResumePrompt meetings={orphaned} onResume={handleResume} onDismiss={() => setOrphaned([])} />
+        <ResumePrompt
+          meetings={orphaned}
+          onResume={handleResume}
+          onDismiss={(id) => setOrphaned((prev) => prev.filter((m) => m.id !== id))}
+        />
       )}
       {!isPill && !showConfigDialog && showHistory && (
         <div className="flex-1 p-4 overflow-hidden">

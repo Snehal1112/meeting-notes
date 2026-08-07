@@ -1,13 +1,13 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ConfigDialog } from "./ConfigDialog";
-import { getConfig, setDataDir } from "@/lib/config";
+import { getRawConfig, setDataDir } from "@/lib/config";
 import { getDataDir } from "@/lib/storage";
 import { countMeetingsAt, migrateMeetings, pickFolder } from "@/lib/dataDir";
 
 vi.mock("@/lib/config", async () => {
   const actual = await vi.importActual<typeof import("@/lib/config")>("@/lib/config");
-  return { ...actual, getConfig: vi.fn(), setDataDir: vi.fn() };
+  return { ...actual, getRawConfig: vi.fn(), setDataDir: vi.fn() };
 });
 
 vi.mock("@/lib/storage", async () => {
@@ -35,7 +35,7 @@ const CURRENT_DIR = "/home/user/.local/share/meeting-notes";
 
 describe("ConfigDialog", () => {
   beforeEach(() => {
-    vi.mocked(getConfig).mockReset().mockResolvedValue(EMPTY_CONFIG);
+    vi.mocked(getRawConfig).mockReset().mockResolvedValue(EMPTY_CONFIG);
     vi.mocked(setDataDir).mockReset().mockResolvedValue(undefined);
     vi.mocked(getDataDir).mockReset().mockResolvedValue(CURRENT_DIR);
     vi.mocked(countMeetingsAt).mockReset().mockResolvedValue(0);
@@ -46,7 +46,7 @@ describe("ConfigDialog", () => {
   it("calls onSave with entered values", async () => {
     const onSave = vi.fn();
     render(<ConfigDialog open onSave={onSave} onSkip={() => {}} />);
-    await waitFor(() => expect(getConfig).toHaveBeenCalled());
+    await waitFor(() => expect(getRawConfig).toHaveBeenCalled());
     fireEvent.change(screen.getByLabelText(/claude api key/i), {
       target: { value: "sk-abc" },
     });
@@ -59,7 +59,7 @@ describe("ConfigDialog", () => {
   it("saves the entered Ollama model alongside the endpoint", async () => {
     const onSave = vi.fn();
     render(<ConfigDialog open onSave={onSave} onSkip={() => {}} />);
-    await waitFor(() => expect(getConfig).toHaveBeenCalled());
+    await waitFor(() => expect(getRawConfig).toHaveBeenCalled());
     fireEvent.change(screen.getByLabelText(/ollama endpoint/i), {
       target: { value: "http://localhost:11434" },
     });
@@ -78,7 +78,7 @@ describe("ConfigDialog", () => {
   it("saves a null Ollama model when the field is left empty", async () => {
     const onSave = vi.fn();
     render(<ConfigDialog open onSave={onSave} onSkip={() => {}} />);
-    await waitFor(() => expect(getConfig).toHaveBeenCalled());
+    await waitFor(() => expect(getRawConfig).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /save/i }));
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({ ollama_model: null })
@@ -88,13 +88,13 @@ describe("ConfigDialog", () => {
   it("calls onSkip when skip is clicked", async () => {
     const onSkip = vi.fn();
     render(<ConfigDialog open onSave={() => {}} onSkip={onSkip} />);
-    await waitFor(() => expect(getConfig).toHaveBeenCalled());
+    await waitFor(() => expect(getRawConfig).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /skip/i }));
     expect(onSkip).toHaveBeenCalled();
   });
 
   it("prefills fields from the saved config when reopened", async () => {
-    vi.mocked(getConfig).mockResolvedValue({
+    vi.mocked(getRawConfig).mockResolvedValue({
       ...EMPTY_CONFIG,
       claude_api_key: "sk-saved",
       ollama_endpoint: "http://localhost:11434",
@@ -109,15 +109,29 @@ describe("ConfigDialog", () => {
     expect(screen.getByDisplayValue("small.en")).toBeInTheDocument();
   });
 
+  it("pre-fills from the raw persisted config, not an env-merged one, so an env-only key can never round-trip back through Save", async () => {
+    // getRawConfig resolves with claude_api_key: null, standing in for "no
+    // key on disk, but MEETING_NOTES_CLAUDE_API_KEY is set in the
+    // environment" -- get_config (env-merged) would return the env value
+    // here, but the component must never call it for pre-fill.
+    const onSave = vi.fn();
+    vi.mocked(getRawConfig).mockResolvedValue({ ...EMPTY_CONFIG, claude_api_key: null });
+    render(<ConfigDialog open onSave={onSave} onSkip={() => {}} />);
+    await waitFor(() => expect(getRawConfig).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ claude_api_key: null }));
+  });
+
   it("preserves fields it has no input for (e.g. summary_provider) when saving", async () => {
     const onSave = vi.fn();
-    vi.mocked(getConfig).mockResolvedValue({
+    vi.mocked(getRawConfig).mockResolvedValue({
       ...EMPTY_CONFIG,
       summary_provider: "ollama",
       ollama_num_ctx: 16384,
     });
     render(<ConfigDialog open onSave={onSave} onSkip={() => {}} />);
-    await waitFor(() => expect(getConfig).toHaveBeenCalled());
+    await waitFor(() => expect(getRawConfig).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole("button", { name: /save/i }));
     expect(onSave).toHaveBeenCalledWith(

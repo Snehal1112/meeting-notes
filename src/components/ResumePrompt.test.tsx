@@ -30,7 +30,7 @@ describe("ResumePrompt", () => {
     render(<ResumePrompt meetings={[orphan()]} onResume={() => {}} onDismiss={onDismiss} />);
 
     fireEvent.click(screen.getByRole("button", { name: /dismiss/i }));
-    expect(onDismiss).toHaveBeenCalled();
+    expect(onDismiss).toHaveBeenCalledWith(orphan().id);
   });
 
   it("renders nothing when there are no orphaned meetings", () => {
@@ -58,5 +58,23 @@ describe("ResumePrompt", () => {
       />
     );
     expect(screen.getAllByRole("button", { name: /resume/i })).toHaveLength(2);
+  });
+
+  it("dismisses only the clicked meeting's id, not all of them", () => {
+    const onDismiss = vi.fn();
+    render(
+      <ResumePrompt
+        meetings={[orphan(), orphan({ id: "2026-08-02_100000_retro", title: "Retro" })]}
+        onResume={() => {}}
+        onDismiss={onDismiss}
+      />
+    );
+
+    const dismissButtons = screen.getAllByRole("button", { name: /dismiss/i });
+    fireEvent.click(dismissButtons[0]);
+
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onDismiss).toHaveBeenCalledWith(orphan().id);
+    expect(onDismiss).not.toHaveBeenCalledWith("2026-08-02_100000_retro");
   });
 });

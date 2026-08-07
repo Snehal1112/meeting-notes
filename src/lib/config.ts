@@ -11,6 +11,11 @@ export interface AppConfig {
 }
 
 export const getConfig = () => invoke<AppConfig>("get_config");
+// Like setSummaryProvider/setDataDir: reads the raw persisted file, not the
+// env-merged resolved config, so ConfigDialog's pre-fill can never surface
+// (and therefore never round-trip back out through saveConfig) a secret the
+// user only ever set via environment variable.
+export const getRawConfig = () => invoke<AppConfig>("get_raw_config");
 export const saveConfig = (config: AppConfig) => invoke<void>("save_config", { config });
 export const configNeedsSetup = () => invoke<boolean>("config_needs_setup");
 // Deliberately narrower than saveConfig: getConfig() returns environment

@@ -9,10 +9,11 @@ use tauri::{AppHandle, Emitter};
 #[tauri::command]
 pub async fn transcribe_meeting(
     app: AppHandle,
-    meeting: MeetingMeta,
+    meeting_id: String,
     whisper_model: String,
 ) -> Result<(), String> {
     let base = resolved_base_dir()?;
+    let meeting = find_meeting(&base, &meeting_id)?;
 
     match run_transcription(&base, meeting.clone(), whisper_model).await {
         Ok(updated) => {
@@ -40,6 +41,20 @@ pub async fn transcribe_meeting(
 pub fn read_transcript_text(meeting_id: String) -> Result<String, String> {
     let base = resolved_base_dir()?;
     read_transcript_for_meeting(&base, &meeting_id)
+}
+
+/// Loads the current meeting from the on-disk index by id, rather than
+/// trusting a client-supplied `MeetingMeta`. A stale or crafted client-held
+/// copy would otherwise let a compromised/buggy renderer control
+/// `meeting.dir_path(base)` directly — the server always reloads its own
+/// copy before using it to build filesystem paths. Mirrors
+/// `summary_commands.rs`'s `find_meeting` exactly.
+fn find_meeting(base: &Path, meeting_id: &str) -> Result<MeetingMeta, String> {
+    let index = load_index(base).map_err(|e| e.to_string())?;
+    index
+        .into_iter()
+        .find(|m| m.id == meeting_id)
+        .ok_or_else(|| format!("meeting {meeting_id} not found"))
 }
 
 /// Looks the meeting up in the index by id and reads its `transcript.txt`.
@@ -128,6 +143,31 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).expect("create temp base dir");
         dir
+    }
+
+    #[test]
+    fn find_meeting_returns_the_matching_meeting_from_the_index() {
+        let base = temp_base("finds-match");
+        let meeting = create_meeting(&base, "Test meeting", MeetingType::AutoDetect).expect("create meeting");
+        append_to_index(&base, &meeting).expect("append to index");
+
+        let found = find_meeting(&base, &meeting.id).expect("meeting found");
+        assert_eq!(found.id, meeting.id);
+        assert_eq!(found.title, meeting.title);
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn find_meeting_errors_when_id_not_in_index() {
+        let base = temp_base("missing-id");
+        let meeting = create_meeting(&base, "Test meeting", MeetingType::AutoDetect).expect("create meeting");
+        append_to_index(&base, &meeting).expect("append to index");
+
+        let result = find_meeting(&base, "nonexistent-id");
+        assert!(result.is_err());
+
+        std::fs::remove_dir_all(&base).ok();
     }
 
     #[test]

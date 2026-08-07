@@ -4,7 +4,7 @@ import type { MeetingMeta } from "@/lib/storage";
 interface ResumePromptProps {
   meetings: MeetingMeta[];
   onResume: (id: string) => void;
-  onDismiss: () => void;
+  onDismiss: (id: string) => void;
 }
 
 // Shown above the widget on launch when a previous session left a recording
@@ -24,7 +24,7 @@ export function ResumePrompt({ meetings, onResume, onDismiss }: ResumePromptProp
             <Button size="sm" variant="outline" onClick={() => onResume(m.id)}>
               Resume
             </Button>
-            <Button size="sm" variant="ghost" onClick={onDismiss}>
+            <Button size="sm" variant="ghost" onClick={() => onDismiss(m.id)}>
               Dismiss
             </Button>
           </div>

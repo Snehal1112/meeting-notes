@@ -109,7 +109,7 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
     try {
       const config = await getConfig();
       if (isCancelled()) return;
-      await transcribeMeeting(currentMeetingRef.current!, config.whisper_model ?? "base.en");
+      await transcribeMeeting(currentMeetingRef.current!.id, config.whisper_model ?? "base.en");
     } catch (err) {
       if (isCancelled()) return;
       console.error("Transcription failed:", errorMessage(err));

@@ -19,6 +19,7 @@ vi.mock("@/lib/config", () => ({
   configNeedsSetup: vi.fn(),
   saveConfig: vi.fn(),
   getConfig: vi.fn(),
+  getRawConfig: vi.fn(),
 }));
 
 vi.mock("@/lib/storage", () => ({
@@ -130,10 +131,21 @@ const orphan: MeetingMeta = {
   error_message: null,
 };
 
+const orphan2: MeetingMeta = {
+  id: "2026-08-02_100000_retro",
+  title: "Retro",
+  created_at: "2026-08-02T10:00:00Z",
+  duration_seconds: null,
+  status: "Recording",
+  meeting_type: "AutoDetect",
+  used_system_audio: true,
+  error_message: null,
+};
+
 beforeEach(async () => {
-  const { configNeedsSetup, getConfig } = await import("@/lib/config");
+  const { configNeedsSetup, getConfig, getRawConfig } = await import("@/lib/config");
   vi.mocked(configNeedsSetup).mockReset().mockResolvedValue(false);
-  vi.mocked(getConfig).mockReset().mockResolvedValue({
+  const emptyConfig = {
     claude_api_key: null,
     ollama_endpoint: null,
     ollama_model: null,
@@ -141,7 +153,9 @@ beforeEach(async () => {
     summary_provider: null,
     whisper_model: null,
     data_dir: null,
-  });
+  };
+  vi.mocked(getConfig).mockReset().mockResolvedValue(emptyConfig);
+  vi.mocked(getRawConfig).mockReset().mockResolvedValue(emptyConfig);
 
   const { getOrphanedMeetings, getDataDir } = await import("@/lib/storage");
   vi.mocked(getOrphanedMeetings).mockReset().mockResolvedValue([]);
@@ -189,6 +203,25 @@ describe("App orphaned recording recovery", () => {
 
     expect(screen.queryByText(/interrupted recording/i)).not.toBeInTheDocument();
     expect(await screen.findByTestId("recorder")).toHaveTextContent("idle");
+  });
+
+  // Regression test: dismissing one orphaned meeting's row must not clear the
+  // whole list -- every row's Dismiss button previously called the same
+  // parameterless callback, so clicking any one of them wiped all of them.
+  it("dismisses only the clicked meeting, leaving the other orphaned meetings visible", async () => {
+    const { getOrphanedMeetings } = await import("@/lib/storage");
+    vi.mocked(getOrphanedMeetings).mockResolvedValue([orphan, orphan2]);
+
+    render(<App />);
+    expect(await screen.findByText(/standup/i)).toBeInTheDocument();
+    expect(screen.getByText(/retro/i)).toBeInTheDocument();
+
+    const dismissButtons = screen.getAllByRole("button", { name: /dismiss/i });
+    fireEvent.click(dismissButtons[0]);
+
+    expect(screen.queryByText(/standup/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/retro/i)).toBeInTheDocument();
+    expect(screen.getByText(/interrupted recording/i)).toBeInTheDocument();
   });
 
   // The first-launch config panel replaces the widget entirely, so surfacing
