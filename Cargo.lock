@@ -2136,6 +2136,8 @@ dependencies = [
 name = "meeting-notes"
 version = "0.1.0"
 dependencies = [
+ "cairo-rs",
+ "gtk",
  "hound",
  "meeting-notes-audio",
  "meeting-notes-core",

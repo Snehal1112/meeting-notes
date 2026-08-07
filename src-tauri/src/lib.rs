@@ -66,6 +66,28 @@ pub fn run() {
                     }
                 });
             });
+
+            // Keeps the pill's click-through mask in sync with the window's
+            // live size. Registered once here rather than re-applied by a
+            // poll loop: `WindowEvent::Resized` already fires on every real
+            // size change (including each frame of the pill's shrink/grow
+            // animation), and this handler runs on the main thread as part
+            // of the runtime's own event dispatch, so there is no extra
+            // latency between the window's shape and its actual size.
+            if let Some(window) = app.get_webview_window("main") {
+                let click_through = app
+                    .state::<commands::window_commands::ClickThroughState>()
+                    .0
+                    .clone();
+                let resize_window = window.clone();
+                window.on_window_event(move |event| {
+                    if matches!(event, tauri::WindowEvent::Resized(_))
+                        && click_through.load(std::sync::atomic::Ordering::SeqCst)
+                    {
+                        commands::window_commands::apply_click_through(&resize_window, true);
+                    }
+                });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
