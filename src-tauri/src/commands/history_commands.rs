@@ -2,6 +2,8 @@ use crate::commands::resolved_base_dir;
 use meeting_notes_core::meeting::{MeetingMeta, MeetingStatus};
 use meeting_notes_storage::{delete_meeting as delete_meeting_impl, extract_summary_snippet, load_index};
 use serde::Serialize;
+use tauri::AppHandle;
+use tauri_plugin_opener::OpenerExt;
 
 /// One row's worth of data for the meeting history list. `meta` supplies
 /// title/date/duration/type/status/error_message directly (flattened into
@@ -45,6 +47,30 @@ pub fn get_meeting_history() -> Result<Vec<MeetingHistoryEntry>, String> {
 pub fn delete_meeting(meeting_id: String) -> Result<(), String> {
     let base = resolved_base_dir()?;
     delete_meeting_impl(&base, &meeting_id).map_err(|e| e.to_string())
+}
+
+/// Opens the meeting's directory in the OS file manager. `meeting_id` is
+/// looked up in the on-disk index rather than trusted directly -- like
+/// `storage_commands::open_summary`, this keeps the revealed path scoped to
+/// an id the server itself generated (`create_meeting`), not an arbitrary
+/// client-supplied path, and calls `AppHandle::opener()` directly rather
+/// than routing through the opener plugin's own IPC command (whose
+/// `allow-open-path` scope is static ACL config, not something we can
+/// widen at runtime to "wherever the user's configured data directory
+/// happens to be" -- see `open_summary`'s doc comment for the full
+/// reasoning).
+#[tauri::command]
+pub fn reveal_in_file_manager(app: AppHandle, meeting_id: String) -> Result<(), String> {
+    let base = resolved_base_dir()?;
+    let index = load_index(&base).map_err(|e| e.to_string())?;
+    let meta = index
+        .iter()
+        .find(|m| m.id == meeting_id)
+        .ok_or_else(|| format!("meeting {meeting_id} not found"))?;
+
+    app.opener()
+        .open_path(meta.dir_path(&base).to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
