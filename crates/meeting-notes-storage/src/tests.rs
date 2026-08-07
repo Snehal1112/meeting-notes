@@ -179,3 +179,24 @@ fn returns_none_snippet_when_no_summary_result_exists() {
     std::fs::create_dir_all(&meeting_dir).unwrap();
     assert_eq!(extract_summary_snippet(&meeting_dir, 60), None);
 }
+
+#[test]
+fn delete_meeting_removes_directory_and_index_entry() {
+    let base = tempdir().unwrap();
+    let meta = create_meeting(base.path(), "To Delete", MeetingType::AutoDetect).unwrap();
+    append_to_index(base.path(), &meta).unwrap();
+    assert!(meta.dir_path(base.path()).exists());
+
+    delete_meeting(base.path(), &meta.id).unwrap();
+
+    assert!(!meta.dir_path(base.path()).exists());
+    let index = load_index(base.path()).unwrap();
+    assert!(index.iter().all(|m| m.id != meta.id));
+}
+
+#[test]
+fn delete_meeting_is_a_noop_error_for_unknown_id() {
+    let base = tempdir().unwrap();
+    let result = delete_meeting(base.path(), "does-not-exist");
+    assert!(result.is_err());
+}

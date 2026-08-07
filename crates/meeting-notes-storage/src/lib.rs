@@ -108,6 +108,28 @@ pub fn append_to_index(base: &Path, meta: &MeetingMeta) -> std::io::Result<()> {
     save_index(base, &index)
 }
 
+/// Removes a meeting's directory from disk and its entry from the index.
+/// Errors if `meeting_id` isn't in the index, rather than silently no-op-ing
+/// — the caller (a user-triggered delete) should see that as a real
+/// failure, not success.
+pub fn delete_meeting(base: &Path, meeting_id: &str) -> std::io::Result<()> {
+    let mut index = load_index(base)?;
+    let Some(pos) = index.iter().position(|m| m.id == meeting_id) else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "meeting not found",
+        ));
+    };
+    let meta = index.remove(pos);
+
+    let meeting_dir = meta.dir_path(base);
+    if meeting_dir.exists() {
+        std::fs::remove_dir_all(&meeting_dir)?;
+    }
+
+    save_index(base, &index)
+}
+
 pub fn update_meeting(base: &Path, updated: &MeetingMeta) -> std::io::Result<()> {
     let mut index = load_index(base)?;
     match index.iter_mut().find(|m| m.id == updated.id) {

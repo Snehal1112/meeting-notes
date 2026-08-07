@@ -1,6 +1,6 @@
 use crate::commands::resolved_base_dir;
 use meeting_notes_core::meeting::{MeetingMeta, MeetingStatus};
-use meeting_notes_storage::{extract_summary_snippet, load_index};
+use meeting_notes_storage::{delete_meeting as delete_meeting_impl, extract_summary_snippet, load_index};
 use serde::Serialize;
 
 /// One row's worth of data for the meeting history list. `meta` supplies
@@ -37,6 +37,14 @@ pub fn get_meeting_history() -> Result<Vec<MeetingHistoryEntry>, String> {
         .collect();
 
     Ok(entries)
+}
+
+/// Deletes a meeting's directory and index entry. Errors if the meeting id
+/// isn't found, rather than silently succeeding.
+#[tauri::command]
+pub fn delete_meeting(meeting_id: String) -> Result<(), String> {
+    let base = resolved_base_dir()?;
+    delete_meeting_impl(&base, &meeting_id).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
