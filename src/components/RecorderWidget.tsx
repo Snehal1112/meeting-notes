@@ -117,6 +117,19 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
     }
   }, []);
 
+  // Retry re-runs the exact same transcription and can fail identically
+  // forever when the cause isn't transient (bad config, missing whisper
+  // model, corrupted audio) -- Dismiss is the escape hatch for that case.
+  // The meeting was already marked Failed and persisted by the backend
+  // when transcriptionError was first set, so nothing is lost: it stays
+  // reachable (and retryable) from History. This only resets local
+  // widget state, back to the same Idle the app starts in.
+  const handleDismissFailure = () => {
+    currentMeetingRef.current = null;
+    setTranscriptionError(null);
+    setState("idle");
+  };
+
   // Actually calls summarize_meeting, opens the generated summary.md in the
   // system's default handler, and returns the widget to idle. Split out
   // from the processing effect below purely for readability.
@@ -432,6 +445,14 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
               className="flex-shrink-0"
             >
               Retry
+            </Button>
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={handleDismissFailure}
+              className="flex-shrink-0"
+            >
+              Dismiss
             </Button>
           </div>
         ) : (

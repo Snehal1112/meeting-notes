@@ -597,6 +597,30 @@ describe("RecorderWidget transcription failure recovery", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/whisper\.cpp binary not found/i);
     consoleErrorSpy.mockRestore();
   });
+
+  // Regression test: a persistently-failing transcription (bad config,
+  // missing whisper model, corrupted audio) means Retry keeps failing
+  // identically forever. Before this fix, the failed pill offered no way
+  // out -- no Dismiss/Cancel affordance, and App.tsx's isPill gating hides
+  // the entire TitleBar (Close/Settings/History) whenever state is
+  // "processing", which a transcription failure never leaves. That left
+  // the user stuck with only a Retry button that could never succeed.
+  it("lets the user dismiss a failed transcription back to Idle", async () => {
+    const { transcribeMeeting } = await import("@/lib/transcription");
+    vi.mocked(transcribeMeeting).mockRejectedValue(new Error("whisper.cpp binary not found"));
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+    await screen.findByText(/transcription failed/i);
+
+    fireEvent.click(screen.getByRole("button", { name: /dismiss/i }));
+
+    expect(await screen.findByRole("button", { name: /start recording/i })).toBeInTheDocument();
+    expect(screen.queryByText(/transcription failed/i)).not.toBeInTheDocument();
+    consoleErrorSpy.mockRestore();
+  });
 });
 
 describe("RecorderWidget summary failure fallback", () => {
