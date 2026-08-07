@@ -73,13 +73,16 @@ vi.mock("@/components/MeetingHistory", () => ({
   MeetingHistory: ({
     onBack,
     onRetryMeeting,
+    onContentChange,
   }: {
     onBack: () => void;
     onRetryMeeting?: (meeting: MeetingMeta) => void;
+    onContentChange?: () => void;
   }) => (
     <div data-testid="history">
       <button onClick={onBack}>history-back</button>
       <button onClick={() => onRetryMeeting?.(retryTarget)}>retry-meeting</button>
+      <button onClick={() => onContentChange?.()}>history-content-changed</button>
     </div>
   ),
 }));
@@ -258,7 +261,7 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
       400,
       300,
       true,
-      "idle:false:false",
+      "idle:false:false:0",
       undefined
     );
 
@@ -268,7 +271,7 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
       400,
       300,
       false,
-      "recording:false:false",
+      "recording:false:false:0",
       undefined
     );
 
@@ -278,7 +281,7 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
       400,
       300,
       false,
-      "processing:false:false",
+      "processing:false:false:0",
       undefined
     );
 
@@ -295,7 +298,7 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
       400,
       300,
       true,
-      "idle:false:false",
+      "idle:false:false:0",
       undefined
     );
   });
@@ -318,7 +321,7 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
       400,
       300,
       true,
-      "idle:true:false",
+      "idle:true:false:0",
       undefined
     );
 
@@ -329,7 +332,7 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
       400,
       300,
       true,
-      "idle:false:false",
+      "idle:false:false:0",
       undefined
     );
   });
@@ -419,7 +422,41 @@ describe("App meeting history", () => {
       400,
       300,
       true,
-      "idle:false:true",
+      "idle:false:true:0",
+      600
+    );
+  });
+
+  // Regression test for the pagination-resize bug: MeetingHistory's own
+  // internal state (pagination, search/filter, a row refreshed after
+  // re-run) is invisible to App.tsx, so it has to be told explicitly via
+  // onContentChange -- otherwise remeasureKey never changes once History is
+  // already open, and the window stays pinned at whatever height it had
+  // when History first rendered.
+  it("forces a fresh measurement when MeetingHistory reports a content change", async () => {
+    const { useAutoResizeWindow } = await import("@/hooks/useAutoResizeWindow");
+    render(<App />);
+    await screen.findByTestId("recorder");
+    fireEvent.click(screen.getByRole("button", { name: "open-history" }));
+    await screen.findByTestId("history");
+
+    expect(vi.mocked(useAutoResizeWindow)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      400,
+      300,
+      true,
+      "idle:false:true:0",
+      600
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "history-content-changed" }));
+
+    expect(vi.mocked(useAutoResizeWindow)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      400,
+      300,
+      true,
+      "idle:false:true:1",
       600
     );
   });
@@ -439,7 +476,7 @@ describe("App meeting history", () => {
       400,
       300,
       true,
-      "idle:false:false",
+      "idle:false:false:0",
       undefined
     );
   });

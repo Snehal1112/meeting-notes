@@ -196,6 +196,68 @@ describe("MeetingHistory", () => {
     });
   });
 
+  // Regression tests for the pagination-resize bug: the window only
+  // re-measures when App.tsx's remeasureKey changes, and remeasureKey is
+  // driven by onContentChange. Without these calls firing on every content
+  // change, the window stays pinned at whatever height it had when History
+  // first opened.
+  describe("onContentChange", () => {
+    function seedEntries(count: number) {
+      return Array.from({ length: count }, (_, i) => entry({ id: `meeting-${i}`, title: `Meeting ${i}` }));
+    }
+
+    it("fires once the history loads", async () => {
+      const onContentChange = vi.fn();
+      getMeetingHistory.mockResolvedValue([entry()]);
+      render(<MeetingHistory onBack={() => {}} onContentChange={onContentChange} />);
+
+      await screen.findByText("Standup");
+      expect(onContentChange).toHaveBeenCalled();
+    });
+
+    it("fires again when paginating to a page with a different row count", async () => {
+      const onContentChange = vi.fn();
+      getMeetingHistory.mockResolvedValue(seedEntries(7));
+      render(<MeetingHistory onBack={() => {}} onContentChange={onContentChange} />);
+      await screen.findByText("Meeting 0");
+
+      const callsAfterLoad = onContentChange.mock.calls.length;
+      await userEvent.setup().click(screen.getByLabelText(/go to next page/i));
+      await screen.findByText("Meeting 5");
+
+      expect(onContentChange.mock.calls.length).toBeGreaterThan(callsAfterLoad);
+    });
+
+    it("fires again when the search text narrows the results", async () => {
+      const onContentChange = vi.fn();
+      getMeetingHistory.mockResolvedValue(seedEntries(7));
+      render(<MeetingHistory onBack={() => {}} onContentChange={onContentChange} />);
+      await screen.findByText("Meeting 0");
+
+      const callsAfterLoad = onContentChange.mock.calls.length;
+      fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "Meeting 6" } });
+      await screen.findByText("Meeting 6");
+
+      expect(onContentChange.mock.calls.length).toBeGreaterThan(callsAfterLoad);
+    });
+
+    it("fires again after a re-run refreshes the entries", async () => {
+      const onContentChange = vi.fn();
+      summarizeMeeting.mockResolvedValue({});
+      getMeetingHistory.mockResolvedValueOnce([entry()]).mockResolvedValue([entry({ snippet: "Updated." })]);
+      const user = userEvent.setup();
+      render(<MeetingHistory onBack={() => {}} onContentChange={onContentChange} />);
+      await screen.findByText("Standup");
+
+      const callsAfterLoad = onContentChange.mock.calls.length;
+      await user.click(screen.getByRole("button", { name: /actions/i }));
+      await user.click(await screen.findByText(/re-run summarization/i));
+
+      await screen.findByText("Updated.");
+      expect(onContentChange.mock.calls.length).toBeGreaterThan(callsAfterLoad);
+    });
+  });
+
   describe("Re-run summarization", () => {
     it("calls summarizeMeeting with the meeting id from the actions menu", async () => {
       const user = userEvent.setup();

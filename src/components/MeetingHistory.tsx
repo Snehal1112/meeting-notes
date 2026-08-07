@@ -25,12 +25,21 @@ interface MeetingHistoryProps {
   // used for resuming an interrupted recording. Optional so tests that
   // don't exercise Retry can omit it.
   onRetryMeeting?: (meeting: MeetingMeta) => void;
+  // Notifies the parent whenever content that changes this panel's natural
+  // height changes (pagination, search/filter results, a row refreshed
+  // after re-run/delete) -- see App.tsx's `historyContentVersion`, which
+  // feeds useAutoResizeWindow's remeasureKey. Without this, the window
+  // never re-measures once History is already open: this panel's own
+  // wrapper div is flex-stretched to fill whatever height the window is
+  // already pinned to, so its box size never changes even though its
+  // content does, and ResizeObserver has nothing to react to.
+  onContentChange?: () => void;
 }
 
 const PAGE_SIZE = 5;
 const UNDO_WINDOW_MS = 6000;
 
-export function MeetingHistory({ onBack, onRetryMeeting }: MeetingHistoryProps) {
+export function MeetingHistory({ onBack, onRetryMeeting, onContentChange }: MeetingHistoryProps) {
   const [entries, setEntries] = useState<MeetingHistoryEntry[] | null>(null);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
@@ -45,6 +54,14 @@ export function MeetingHistory({ onBack, onRetryMeeting }: MeetingHistoryProps) 
   useEffect(() => {
     loadHistory();
   }, []);
+
+  // Every piece of state that can change this panel's rendered height:
+  // the loaded entries themselves (initial load, delete, a re-run's
+  // refreshed snippet), which page is showing, and the search/filter
+  // criteria that change how many rows match.
+  useEffect(() => {
+    onContentChange?.();
+  }, [entries, page, search, typeFilter, statusFilter, onContentChange]);
 
   const handleRerun = async (entry: MeetingHistoryEntry) => {
     try {

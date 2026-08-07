@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Toaster } from "sonner";
 import { TitleBar } from "@/components/TitleBar";
 import { ConfigDialog } from "@/components/ConfigDialog";
@@ -39,6 +39,18 @@ function App() {
   const [orphaned, setOrphaned] = useState<MeetingMeta[]>([]);
   const [resumeMeeting, setResumeMeeting] = useState<MeetingMeta | null>(null);
   const [widgetState, setWidgetState] = useState<WidgetState>("idle");
+  // Bumped whenever MeetingHistory's own content changes (pagination,
+  // search/filter results, a row refreshed after re-run/delete) -- folded
+  // into remeasureKey below. MeetingHistory's wrapper div is flex-stretched
+  // to fill whatever height the window is already pinned to, so its own box
+  // never changes size even when its content does; useAutoResizeWindow's
+  // ResizeObserver has nothing to react to on its own for those internal
+  // state changes, the same way it wouldn't for a widgetState transition
+  // without remeasureKey (see that hook's comments).
+  const [historyContentVersion, setHistoryContentVersion] = useState(0);
+  const handleHistoryContentChange = useCallback(() => {
+    setHistoryContentVersion((v) => v + 1);
+  }, []);
   const rootRef = useRef<HTMLDivElement>(null);
   // Generation counter for the pill resize animation, mirroring
   // RecorderWidget's summarizeRunRef: bumped whenever the widget state
@@ -75,7 +87,7 @@ function App() {
     400,
     300,
     !isPill,
-    `${widgetState}:${showConfigDialog}:${showHistory}`,
+    `${widgetState}:${showConfigDialog}:${showHistory}:${historyContentVersion}`,
     showHistory ? 600 : undefined
   );
 
@@ -225,7 +237,11 @@ function App() {
       )}
       {!isPill && !showConfigDialog && showHistory && (
         <div className="flex-1 p-4 overflow-hidden">
-          <MeetingHistory onBack={() => setShowHistory(false)} onRetryMeeting={handleRetryMeeting} />
+          <MeetingHistory
+            onBack={() => setShowHistory(false)}
+            onRetryMeeting={handleRetryMeeting}
+            onContentChange={handleHistoryContentChange}
+          />
         </div>
       )}
       {(isPill || (!showConfigDialog && !showHistory)) && (
