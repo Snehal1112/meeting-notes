@@ -214,6 +214,30 @@ describe("useAutoResizeWindow", () => {
     expect(setSize).not.toHaveBeenCalled();
   });
 
+  it("caps the height at an explicit maxHeightOverride when it is lower than the monitor cap", async () => {
+    currentMonitor.mockResolvedValue(fakeMonitor(1000)); // monitor-fraction cap would be 850
+    Object.defineProperty(root.children[0]!, "scrollHeight", { value: 5000, configurable: true });
+
+    renderHook(() => useAutoResizeWindow(ref, 400, 300, true, undefined, 600));
+    FakeResizeObserver.instances[0]!.fire();
+
+    await waitFor(() =>
+      expect(setSize).toHaveBeenCalledWith(expect.objectContaining({ width: 400, height: 600 }))
+    );
+  });
+
+  it("is unaffected by maxHeightOverride when content is shorter than it", async () => {
+    currentMonitor.mockResolvedValue(fakeMonitor(1000));
+    Object.defineProperty(root.children[0]!, "scrollHeight", { value: 500, configurable: true });
+
+    renderHook(() => useAutoResizeWindow(ref, 400, 300, true, undefined, 600));
+    FakeResizeObserver.instances[0]!.fire();
+
+    await waitFor(() =>
+      expect(setSize).toHaveBeenCalledWith(expect.objectContaining({ width: 400, height: 500 }))
+    );
+  });
+
   it("is unaffected by the cap when content is shorter than it", async () => {
     currentMonitor.mockResolvedValue(fakeMonitor(1000));
     Object.defineProperty(root.children[0]!, "scrollHeight", { value: 500, configurable: true });

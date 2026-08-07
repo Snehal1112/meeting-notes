@@ -3,6 +3,7 @@ import { TitleBar } from "@/components/TitleBar";
 import { ConfigDialog } from "@/components/ConfigDialog";
 import { RecorderWidget, type WidgetState } from "@/components/RecorderWidget";
 import { ResumePrompt } from "@/components/ResumePrompt";
+import { MeetingHistory } from "@/components/MeetingHistory";
 import { configNeedsSetup, saveConfig, type AppConfig } from "@/lib/config";
 import { getOrphanedMeetings, type MeetingMeta } from "@/lib/storage";
 import { animateResize, currentWindowSize } from "@/lib/windowAnimation";
@@ -33,6 +34,7 @@ const PILL_SIZES: Record<"recording" | "processing", { width: number; height: nu
 
 function App() {
   const [showConfigDialog, setShowConfigDialog] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [orphaned, setOrphaned] = useState<MeetingMeta[]>([]);
   const [resumeMeeting, setResumeMeeting] = useState<MeetingMeta | null>(null);
   const [widgetState, setWidgetState] = useState<WidgetState>("idle");
@@ -52,16 +54,29 @@ function App() {
   // why an already-created ResizeObserver keeps firing regardless, and would
   // pull the window back to 400x300 mid-animation.
   //
-  // widgetState and showConfigDialog are both passed as remeasureKey: once
-  // the root's height is pinned (e.g. after a long Done-state summary, or
-  // after the taller ConfigDialog panel), its flex-1 children stretch to
-  // fill that space rather than shrinking to content, so swapping in
-  // shorter content -- "New Recording" replacing Done with Idle, or closing
-  // ConfigDialog back to the RecorderWidget -- never changes any observed
-  // element's own box size on its own -- ResizeObserver has nothing to
-  // react to. Combining both into one key forces a fresh measurement on
-  // every such transition instead.
-  useAutoResizeWindow(rootRef, 400, 300, !isPill, `${widgetState}:${showConfigDialog}`);
+  // widgetState, showConfigDialog, and showHistory are all passed as
+  // remeasureKey: once the root's height is pinned (e.g. after a long
+  // Done-state summary, or after the taller ConfigDialog/History panels),
+  // its flex-1 children stretch to fill that space rather than shrinking to
+  // content, so swapping in shorter content -- "New Recording" replacing
+  // Done with Idle, or closing ConfigDialog/History back to the
+  // RecorderWidget -- never changes any observed element's own box size on
+  // its own -- ResizeObserver has nothing to react to. Combining all three
+  // into one key forces a fresh measurement on every such transition
+  // instead.
+  //
+  // History gets its own 600px cap, independent of the monitor-fraction cap
+  // the other states share -- a long meeting list on a large monitor
+  // shouldn't grow the window arbitrarily tall the way a Done-state summary
+  // legitimately can.
+  useAutoResizeWindow(
+    rootRef,
+    400,
+    300,
+    !isPill,
+    `${widgetState}:${showConfigDialog}:${showHistory}`,
+    showHistory ? 600 : undefined
+  );
 
   // Drives the pill's own size during Recording/Processing only. Idle/Done
   // intentionally do not run this -- see PILL_SIZES above.
@@ -173,14 +188,30 @@ function App() {
             "min-h-[300px] flex flex-col rounded-lg overflow-hidden border shadow-widget bg-background transition-[height] duration-[180ms] ease-[cubic-bezier(0.33,1,0.68,1)]"
       }
     >
-      {!isPill && <TitleBar onOpenSettings={() => setShowConfigDialog(true)} />}
+      {!isPill && (
+        <TitleBar
+          onOpenSettings={() => {
+            setShowHistory(false);
+            setShowConfigDialog(true);
+          }}
+          onOpenHistory={() => {
+            setShowConfigDialog(false);
+            setShowHistory(true);
+          }}
+        />
+      )}
       {!isPill && showConfigDialog && (
         <ConfigDialog open={showConfigDialog} onSave={handleSave} onSkip={handleSkip} />
       )}
-      {!isPill && !showConfigDialog && (
+      {!isPill && !showConfigDialog && !showHistory && (
         <ResumePrompt meetings={orphaned} onResume={handleResume} onDismiss={() => setOrphaned([])} />
       )}
-      {(isPill || !showConfigDialog) && (
+      {!isPill && !showConfigDialog && showHistory && (
+        <div className="flex-1 p-4 overflow-hidden">
+          <MeetingHistory onBack={() => setShowHistory(false)} />
+        </div>
+      )}
+      {(isPill || (!showConfigDialog && !showHistory)) && (
         <div className={isPill ? undefined : "flex-1 p-4 overflow-hidden"}>
           <RecorderWidget resumeMeeting={resumeMeeting} onStateChange={setWidgetState} />
         </div>

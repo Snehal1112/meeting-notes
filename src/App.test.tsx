@@ -32,10 +32,39 @@ vi.mock("@/lib/window", () => ({
   setClickThroughTracking: vi.fn().mockResolvedValue(undefined),
 }));
 
-// The real hook and title bar call into Tauri's window APIs, which do not
-// exist in jsdom. Neither is under test here.
+// The real hook calls into Tauri's window APIs, which do not exist in
+// jsdom, and is not under test here.
 vi.mock("@/hooks/useAutoResizeWindow", () => ({ useAutoResizeWindow: vi.fn() }));
-vi.mock("@/components/TitleBar", () => ({ TitleBar: () => <div /> }));
+
+// Stubbed with real buttons (rather than a blank div) so these tests can
+// drive App's showHistory/showConfigDialog wiring directly -- TitleBar's own
+// click/drag behavior is already covered by TitleBar.test.tsx.
+vi.mock("@/components/TitleBar", () => ({
+  TitleBar: ({
+    onOpenSettings,
+    onOpenHistory,
+  }: {
+    onOpenSettings: () => void;
+    onOpenHistory: () => void;
+  }) => (
+    <div>
+      <button onClick={onOpenSettings}>open-settings</button>
+      <button onClick={onOpenHistory}>open-history</button>
+    </div>
+  ),
+}));
+
+// Stubbed so these tests assert App's wiring (does showHistory swap in this
+// component, does Back close it) without needing a real get_meeting_history
+// Tauri call -- MeetingHistory's own data-loading behavior is covered by
+// MeetingHistory.test.tsx.
+vi.mock("@/components/MeetingHistory", () => ({
+  MeetingHistory: ({ onBack }: { onBack: () => void }) => (
+    <div data-testid="history">
+      <button onClick={onBack}>history-back</button>
+    </div>
+  ),
+}));
 
 // Stubbed so these tests assert App's wiring — which meeting it hands down,
 // and (below) whether App preserves this instance across a widgetState
@@ -77,6 +106,7 @@ const orphan: MeetingMeta = {
   status: "Recording",
   meeting_type: "AutoDetect",
   used_system_audio: true,
+  error_message: null,
 };
 
 beforeEach(async () => {
@@ -210,7 +240,8 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
       400,
       300,
       true,
-      "idle:false"
+      "idle:false:false",
+      undefined
     );
 
     fireEvent.click(screen.getByRole("button", { name: "go-recording" }));
@@ -219,7 +250,8 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
       400,
       300,
       false,
-      "recording:false"
+      "recording:false:false",
+      undefined
     );
 
     fireEvent.click(screen.getByRole("button", { name: "go-processing" }));
@@ -228,7 +260,8 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
       400,
       300,
       false,
-      "processing:false"
+      "processing:false:false",
+      undefined
     );
 
     // Back out of the pill: the hook must be handed sizing again, or the
@@ -244,7 +277,8 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
       400,
       300,
       true,
-      "idle:false"
+      "idle:false:false",
+      undefined
     );
   });
 
@@ -266,7 +300,8 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
       400,
       300,
       true,
-      "idle:true"
+      "idle:true:false",
+      undefined
     );
 
     fireEvent.click(screen.getByRole("button", { name: /skip/i }));
@@ -276,7 +311,8 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
       400,
       300,
       true,
-      "idle:false"
+      "idle:false:false",
+      undefined
     );
   });
 
@@ -290,6 +326,92 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
 
     expect(await screen.findByTestId("recorder-mount-id")).toHaveTextContent(beforeId!);
     expect(recorderMountCount).toBe(1);
+  });
+});
+
+describe("App meeting history", () => {
+  it("shows Meeting History and hides the widget when the History icon is clicked", async () => {
+    render(<App />);
+    await screen.findByTestId("recorder");
+
+    fireEvent.click(screen.getByRole("button", { name: "open-history" }));
+
+    expect(await screen.findByTestId("history")).toBeInTheDocument();
+    expect(screen.queryByTestId("recorder")).not.toBeInTheDocument();
+  });
+
+  it("returns to the widget when Meeting History's Back is clicked", async () => {
+    render(<App />);
+    await screen.findByTestId("recorder");
+    fireEvent.click(screen.getByRole("button", { name: "open-history" }));
+    await screen.findByTestId("history");
+
+    fireEvent.click(screen.getByRole("button", { name: "history-back" }));
+
+    expect(await screen.findByTestId("recorder")).toBeInTheDocument();
+    expect(screen.queryByTestId("history")).not.toBeInTheDocument();
+  });
+
+  it("closes an open Settings panel when History is opened", async () => {
+    const { configNeedsSetup } = await import("@/lib/config");
+    vi.mocked(configNeedsSetup).mockResolvedValue(true);
+    render(<App />);
+    await screen.findByText(/set up meeting notes/i);
+
+    fireEvent.click(screen.getByRole("button", { name: "open-history" }));
+
+    expect(await screen.findByTestId("history")).toBeInTheDocument();
+    expect(screen.queryByText(/set up meeting notes/i)).not.toBeInTheDocument();
+  });
+
+  it("closes an open History panel when Settings is opened", async () => {
+    render(<App />);
+    await screen.findByTestId("recorder");
+    fireEvent.click(screen.getByRole("button", { name: "open-history" }));
+    await screen.findByTestId("history");
+
+    fireEvent.click(screen.getByRole("button", { name: "open-settings" }));
+
+    expect(await screen.findByText(/set up meeting notes/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("history")).not.toBeInTheDocument();
+  });
+
+  it("caps the height at 600px while Meeting History is open", async () => {
+    const { useAutoResizeWindow } = await import("@/hooks/useAutoResizeWindow");
+    render(<App />);
+    await screen.findByTestId("recorder");
+
+    fireEvent.click(screen.getByRole("button", { name: "open-history" }));
+    await screen.findByTestId("history");
+
+    expect(vi.mocked(useAutoResizeWindow)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      400,
+      300,
+      true,
+      "idle:false:true",
+      600
+    );
+  });
+
+  it("passes no height override once Meeting History is closed", async () => {
+    const { useAutoResizeWindow } = await import("@/hooks/useAutoResizeWindow");
+    render(<App />);
+    await screen.findByTestId("recorder");
+    fireEvent.click(screen.getByRole("button", { name: "open-history" }));
+    await screen.findByTestId("history");
+
+    fireEvent.click(screen.getByRole("button", { name: "history-back" }));
+
+    expect(await screen.findByTestId("recorder")).toBeInTheDocument();
+    expect(vi.mocked(useAutoResizeWindow)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      400,
+      300,
+      true,
+      "idle:false:false",
+      undefined
+    );
   });
 });
 

@@ -11,6 +11,7 @@ const orphan = (overrides: Partial<MeetingMeta> = {}): MeetingMeta => ({
   status: "Recording",
   used_system_audio: true,
   meeting_type: "AutoDetect",
+  error_message: null,
   ...overrides,
 });
 

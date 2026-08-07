@@ -39,7 +39,12 @@ export function useAutoResizeWindow(
   // observer whenever it changes, and a freshly-observed element always
   // gets measured once even with no size change -- exactly the signal
   // ResizeObserver alone cannot provide here.
-  remeasureKey?: unknown
+  remeasureKey?: unknown,
+  // A hard cap tighter than the monitor-fraction cap, for content that
+  // should never grow as tall as the rest of that percentage would allow
+  // (e.g. Meeting History's 600px cap, regardless of monitor size).
+  // Ignored when the monitor-fraction cap is already lower.
+  maxHeightOverride?: number
 ) {
   useEffect(() => {
     if (!enabled) return;
@@ -99,9 +104,12 @@ export function useAutoResizeWindow(
       // Do not write a stale size.
       if (isStale()) return;
 
-      const heightCap = monitor
-        ? monitor.workArea.size.toLogical(monitor.scaleFactor).height * HEIGHT_CAP_FRACTION
-        : FALLBACK_HEIGHT_CAP;
+      const heightCap = Math.min(
+        monitor
+          ? monitor.workArea.size.toLogical(monitor.scaleFactor).height * HEIGHT_CAP_FRACTION
+          : FALLBACK_HEIGHT_CAP,
+        maxHeightOverride ?? Infinity
+      );
 
       const height = Math.min(heightCap, Math.max(minHeight, total));
 
@@ -149,5 +157,5 @@ export function useAutoResizeWindow(
       // re-enabled.
       el.style.height = "";
     };
-  }, [ref, width, minHeight, enabled, remeasureKey]);
+  }, [ref, width, minHeight, enabled, remeasureKey, maxHeightOverride]);
 }

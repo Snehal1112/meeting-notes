@@ -18,6 +18,7 @@ export interface MeetingMeta {
   status: "Recording" | "Transcribing" | "Summarizing" | "Done" | "Failed";
   used_system_audio: boolean;
   meeting_type: MeetingType;
+  error_message: string | null;
 }
 
 export const createNewMeeting = (title: string, meetingType: MeetingType) =>

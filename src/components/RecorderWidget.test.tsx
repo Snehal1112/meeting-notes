@@ -49,6 +49,7 @@ const fakeMeeting = {
   status: "Recording" as const,
   used_system_audio: false,
   meeting_type: "AutoDetect" as const,
+  error_message: null,
 };
 
 beforeEach(async () => {
