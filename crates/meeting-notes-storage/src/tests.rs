@@ -153,3 +153,29 @@ fn save_index_overwrites_leftover_tmp_file_from_a_prior_crash() {
     assert_eq!(index.len(), 1);
     assert_eq!(index[0].id, meta.id);
 }
+
+#[test]
+fn extracts_summary_snippet_from_summary_result_json() {
+    let dir = tempdir().unwrap();
+    let meeting_dir = dir.path().join("meetings").join("test-meeting");
+    std::fs::create_dir_all(&meeting_dir).unwrap();
+    std::fs::write(
+        meeting_dir.join("summary_result.json"),
+        r#"{"summary": "Discussed Q3 roadmap timeline and blockers on the API migration in detail across the whole hour."}"#,
+    )
+    .unwrap();
+
+    let snippet = extract_summary_snippet(&meeting_dir, 60);
+    assert_eq!(
+        snippet,
+        Some("Discussed Q3 roadmap timeline and blockers on the API migrat…".to_string())
+    );
+}
+
+#[test]
+fn returns_none_snippet_when_no_summary_result_exists() {
+    let dir = tempdir().unwrap();
+    let meeting_dir = dir.path().join("meetings").join("no-summary-yet");
+    std::fs::create_dir_all(&meeting_dir).unwrap();
+    assert_eq!(extract_summary_snippet(&meeting_dir, 60), None);
+}

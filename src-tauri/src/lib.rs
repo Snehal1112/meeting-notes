@@ -109,7 +109,8 @@ pub fn run() {
             commands::summary_commands::summarize_meeting,
             commands::data_dir_commands::count_meetings_at,
             commands::data_dir_commands::migrate_meetings,
-            commands::window_commands::set_click_through_tracking
+            commands::window_commands::set_click_through_tracking,
+            commands::history_commands::get_meeting_history
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

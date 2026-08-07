@@ -11,6 +11,25 @@ pub fn base_dir(override_dir: Option<&Path>) -> Option<PathBuf> {
         .map(|dirs| dirs.data_dir().to_path_buf())
 }
 
+/// Reads the `summary` field out of `summary_result.json`
+/// (`summary_commands.rs::write_summary_files`) and truncates to
+/// `max_chars`, appending an ellipsis if truncated. Returns `None` if the
+/// file doesn't exist yet (meeting still processing/failed before ever
+/// reaching summarization) rather than erroring — the caller decides what
+/// to show in that case.
+pub fn extract_summary_snippet(meeting_dir: &Path, max_chars: usize) -> Option<String> {
+    let contents = std::fs::read_to_string(meeting_dir.join("summary_result.json")).ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(&contents).ok()?;
+    let summary = parsed.get("summary")?.as_str()?;
+
+    if summary.chars().count() <= max_chars {
+        Some(summary.to_string())
+    } else {
+        let truncated: String = summary.chars().take(max_chars).collect();
+        Some(format!("{truncated}…"))
+    }
+}
+
 /// Meetings whose status never advanced past Recording — likely crashed/interrupted.
 pub fn find_orphaned_meetings(base: &Path) -> std::io::Result<Vec<MeetingMeta>> {
     let index = load_index(base)?;
