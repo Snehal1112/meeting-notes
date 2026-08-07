@@ -63,6 +63,14 @@ export function MeetingHistory({ onBack, onRetryMeeting, onContentChange }: Meet
     onContentChange?.();
   }, [entries, page, search, typeFilter, statusFilter, onContentChange]);
 
+  const handleReveal = async (entry: MeetingHistoryEntry) => {
+    try {
+      await revealInFileManager(entry.id);
+    } catch (err) {
+      toast.error(`Could not open "${entry.title || "Untitled meeting"}" in file manager: ${err}`);
+    }
+  };
+
   const handleRerun = async (entry: MeetingHistoryEntry) => {
     try {
       await summarizeMeeting(entry.id);
@@ -186,7 +194,7 @@ export function MeetingHistory({ onBack, onRetryMeeting, onContentChange }: Meet
                 <MeetingHistoryRow
                   entry={entry}
                   onOpen={() => openSummary(entry.id)}
-                  onReveal={() => revealInFileManager(entry.id)}
+                  onReveal={() => handleReveal(entry)}
                   onRerun={() => handleRerun(entry)}
                   onRetry={() => onRetryMeeting?.(entry)}
                   onDelete={() => handleDelete(entry)}

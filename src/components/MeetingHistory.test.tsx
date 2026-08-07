@@ -48,7 +48,7 @@ const entry = (overrides: Partial<MeetingHistoryEntry> = {}): MeetingHistoryEntr
 });
 
 beforeEach(() => {
-  revealInFileManager.mockClear();
+  revealInFileManager.mockReset().mockResolvedValue(undefined);
   deleteMeeting.mockReset().mockResolvedValue(undefined);
   openSummary.mockClear();
   summarizeMeeting.mockClear();
@@ -255,6 +255,21 @@ describe("MeetingHistory", () => {
 
       await screen.findByText("Updated.");
       expect(onContentChange.mock.calls.length).toBeGreaterThan(callsAfterLoad);
+    });
+  });
+
+  describe("Reveal in file manager", () => {
+    it("shows an error toast when revealInFileManager fails", async () => {
+      const user = userEvent.setup();
+      revealInFileManager.mockRejectedValue(new Error("no such file or directory"));
+      getMeetingHistory.mockResolvedValue([entry()]);
+      renderWithToaster({ onBack: () => {} });
+      await screen.findByText("Standup");
+
+      await user.click(screen.getByRole("button", { name: /actions/i }));
+      await user.click(await screen.findByText(/reveal in file manager/i));
+
+      expect(await screen.findByText(/could not open "standup" in file manager/i)).toBeInTheDocument();
     });
   });
 
