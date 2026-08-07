@@ -1,21 +1,37 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Toaster } from "sonner";
 import { MeetingHistory } from "./MeetingHistory";
 import type { MeetingHistoryEntry } from "@/lib/history";
 
+function renderWithToaster(props: Parameters<typeof MeetingHistory>[0]) {
+  return render(
+    <>
+      <Toaster />
+      <MeetingHistory {...props} />
+    </>
+  );
+}
+
 const getMeetingHistory = vi.fn();
 const revealInFileManager = vi.fn();
+const deleteMeeting = vi.fn();
 const openSummary = vi.fn();
+const summarizeMeeting = vi.fn();
 
 vi.mock("@/lib/history", () => ({
   getMeetingHistory: () => getMeetingHistory(),
-  deleteMeeting: vi.fn(),
+  deleteMeeting: (id: string) => deleteMeeting(id),
   revealInFileManager: (id: string) => revealInFileManager(id),
 }));
 
 vi.mock("@/lib/storage", () => ({
   openSummary: (id: string) => openSummary(id),
+}));
+
+vi.mock("@/lib/summary", () => ({
+  summarizeMeeting: (id: string) => summarizeMeeting(id),
 }));
 
 const entry = (overrides: Partial<MeetingHistoryEntry> = {}): MeetingHistoryEntry => ({
@@ -33,7 +49,9 @@ const entry = (overrides: Partial<MeetingHistoryEntry> = {}): MeetingHistoryEntr
 
 beforeEach(() => {
   revealInFileManager.mockClear();
+  deleteMeeting.mockReset().mockResolvedValue(undefined);
   openSummary.mockClear();
+  summarizeMeeting.mockClear();
 });
 
 describe("MeetingHistory", () => {
@@ -162,6 +180,81 @@ describe("MeetingHistory", () => {
       render(<MeetingHistory onBack={() => {}} />);
       await screen.findByText("Meeting 0");
       expect(screen.queryByLabelText(/go to next page/i)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Retry", () => {
+    it("calls onRetryMeeting with the failed meeting when Retry is clicked", async () => {
+      const failed = entry({ status: "Failed", snippet: null, error_message: "boom" });
+      getMeetingHistory.mockResolvedValue([failed]);
+      const onRetryMeeting = vi.fn();
+      render(<MeetingHistory onBack={() => {}} onRetryMeeting={onRetryMeeting} />);
+
+      fireEvent.click(await screen.findByRole("button", { name: /retry/i }));
+
+      expect(onRetryMeeting).toHaveBeenCalledWith(expect.objectContaining({ id: failed.id }));
+    });
+  });
+
+  describe("Re-run summarization", () => {
+    it("calls summarizeMeeting with the meeting id from the actions menu", async () => {
+      const user = userEvent.setup();
+      summarizeMeeting.mockResolvedValue({});
+      getMeetingHistory.mockResolvedValue([entry()]);
+      render(<MeetingHistory onBack={() => {}} />);
+      await screen.findByText("Standup");
+
+      await user.click(screen.getByRole("button", { name: /actions/i }));
+      await user.click(await screen.findByText(/re-run summarization/i));
+
+      expect(summarizeMeeting).toHaveBeenCalledWith(entry().id);
+    });
+  });
+
+  describe("Delete", () => {
+    it("removes the row immediately when Delete is clicked", async () => {
+      const user = userEvent.setup();
+      getMeetingHistory.mockResolvedValue([entry()]);
+      render(<MeetingHistory onBack={() => {}} />);
+      await screen.findByText("Standup");
+
+      await user.click(screen.getByRole("button", { name: /actions/i }));
+      await user.click(await screen.findByText(/^delete$/i));
+
+      expect(screen.queryByText("Standup")).not.toBeInTheDocument();
+    });
+
+    it("does not call deleteMeeting until the undo window elapses", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      getMeetingHistory.mockResolvedValue([entry()]);
+      renderWithToaster({ onBack: () => {} });
+      await screen.findByText("Standup");
+
+      await user.click(screen.getByRole("button", { name: /actions/i }));
+      await user.click(await screen.findByText(/^delete$/i));
+      expect(deleteMeeting).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(6000);
+      expect(deleteMeeting).toHaveBeenCalledWith(entry().id);
+      vi.useRealTimers();
+    });
+
+    it("restores the row and never calls deleteMeeting when Undo is clicked", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      getMeetingHistory.mockResolvedValue([entry()]);
+      renderWithToaster({ onBack: () => {} });
+      await screen.findByText("Standup");
+
+      await user.click(screen.getByRole("button", { name: /actions/i }));
+      await user.click(await screen.findByText(/^delete$/i));
+      await user.click(await screen.findByText(/undo/i));
+
+      vi.advanceTimersByTime(6000);
+      expect(deleteMeeting).not.toHaveBeenCalled();
+      expect(screen.getByText("Standup")).toBeInTheDocument();
+      vi.useRealTimers();
     });
   });
 });

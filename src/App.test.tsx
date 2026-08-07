@@ -58,10 +58,28 @@ vi.mock("@/components/TitleBar", () => ({
 // component, does Back close it) without needing a real get_meeting_history
 // Tauri call -- MeetingHistory's own data-loading behavior is covered by
 // MeetingHistory.test.tsx.
+const retryTarget: MeetingMeta = {
+  id: "2026-08-02_110000_failed-meeting",
+  title: "Failed meeting",
+  created_at: "2026-08-02T11:00:00Z",
+  duration_seconds: 120,
+  status: "Failed",
+  meeting_type: "AutoDetect",
+  used_system_audio: true,
+  error_message: "whisper.cpp exited with status 1",
+};
+
 vi.mock("@/components/MeetingHistory", () => ({
-  MeetingHistory: ({ onBack }: { onBack: () => void }) => (
+  MeetingHistory: ({
+    onBack,
+    onRetryMeeting,
+  }: {
+    onBack: () => void;
+    onRetryMeeting?: (meeting: MeetingMeta) => void;
+  }) => (
     <div data-testid="history">
       <button onClick={onBack}>history-back</button>
+      <button onClick={() => onRetryMeeting?.(retryTarget)}>retry-meeting</button>
     </div>
   ),
 }));
@@ -330,6 +348,18 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
 });
 
 describe("App meeting history", () => {
+  it("hands the meeting to the widget and closes History when Retry is triggered", async () => {
+    render(<App />);
+    await screen.findByTestId("recorder");
+    fireEvent.click(screen.getByRole("button", { name: "open-history" }));
+    await screen.findByTestId("history");
+
+    fireEvent.click(screen.getByRole("button", { name: "retry-meeting" }));
+
+    expect(await screen.findByTestId("recorder")).toHaveTextContent(`resuming:${retryTarget.id}`);
+    expect(screen.queryByTestId("history")).not.toBeInTheDocument();
+  });
+
   it("shows Meeting History and hides the widget when the History icon is clicked", async () => {
     render(<App />);
     await screen.findByTestId("recorder");

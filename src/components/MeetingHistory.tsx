@@ -10,29 +10,82 @@ import {
   PaginationPrevious,
   PaginationNext,
 } from "@/components/ui/pagination";
+import { toast } from "sonner";
 import { MeetingHistoryRow } from "@/components/MeetingHistoryRow";
-import { openSummary } from "@/lib/storage";
-import { getMeetingHistory, revealInFileManager, type MeetingHistoryEntry } from "@/lib/history";
+import { openSummary, type MeetingMeta } from "@/lib/storage";
+import { summarizeMeeting } from "@/lib/summary";
+import { deleteMeeting, getMeetingHistory, revealInFileManager, type MeetingHistoryEntry } from "@/lib/history";
 import { ChevronLeft, History as HistoryIcon } from "lucide-react";
 
 interface MeetingHistoryProps {
   onBack: () => void;
+  // Reuses RecorderWidget's existing resumeMeeting hand-off (App.tsx passes
+  // this straight through to setResumeMeeting): retrying a Failed meeting
+  // re-enters the exact same "skip straight to processing" path already
+  // used for resuming an interrupted recording. Optional so tests that
+  // don't exercise Retry can omit it.
+  onRetryMeeting?: (meeting: MeetingMeta) => void;
 }
 
 const PAGE_SIZE = 5;
+const UNDO_WINDOW_MS = 6000;
 
-export function MeetingHistory({ onBack }: MeetingHistoryProps) {
+export function MeetingHistory({ onBack, onRetryMeeting }: MeetingHistoryProps) {
   const [entries, setEntries] = useState<MeetingHistoryEntry[] | null>(null);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [page, setPage] = useState(1);
 
-  useEffect(() => {
+  const loadHistory = () =>
     getMeetingHistory()
       .then(setEntries)
       .catch((err) => console.error("Could not load meeting history:", err));
+
+  useEffect(() => {
+    loadHistory();
   }, []);
+
+  const handleRerun = async (entry: MeetingHistoryEntry) => {
+    try {
+      await summarizeMeeting(entry.id);
+      toast.success(`Summary regenerated for "${entry.title || "Untitled meeting"}"`);
+      loadHistory(); // Refresh to pick up the new snippet.
+    } catch (err) {
+      toast.error(`Failed to regenerate summary: ${err}`);
+    }
+  };
+
+  // Optimistic UI: the row disappears immediately and the actual
+  // deleteMeeting call is deferred behind an undo toast's window. If the
+  // app quits during that window the meeting simply reappears in history on
+  // next launch -- a deliberate simplicity tradeoff (see the design spec),
+  // not a bug.
+  const handleDelete = (entry: MeetingHistoryEntry) => {
+    setEntries((prev) => (prev ? prev.filter((e) => e.id !== entry.id) : prev));
+
+    let undone = false;
+    const timeoutId = setTimeout(() => {
+      if (!undone) {
+        deleteMeeting(entry.id).catch((err) => {
+          console.error("Failed to delete meeting:", err);
+          toast.error(`Failed to delete "${entry.title}" — it may still exist on disk.`);
+        });
+      }
+    }, UNDO_WINDOW_MS);
+
+    toast(`"${entry.title || "Untitled meeting"}" deleted`, {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          undone = true;
+          clearTimeout(timeoutId);
+          setEntries((prev) => (prev ? [...prev, entry] : prev));
+        },
+      },
+      duration: UNDO_WINDOW_MS,
+    });
+  };
 
   const filtered = (entries ?? []).filter((e) => {
     const matchesSearch = e.title.toLowerCase().includes(search.toLowerCase());
@@ -117,15 +170,9 @@ export function MeetingHistory({ onBack }: MeetingHistoryProps) {
                   entry={entry}
                   onOpen={() => openSummary(entry.id)}
                   onReveal={() => revealInFileManager(entry.id)}
-                  onRerun={() => {
-                    /* Task 3 */
-                  }}
-                  onRetry={() => {
-                    /* Task 3 */
-                  }}
-                  onDelete={() => {
-                    /* Task 3 */
-                  }}
+                  onRerun={() => handleRerun(entry)}
+                  onRetry={() => onRetryMeeting?.(entry)}
+                  onDelete={() => handleDelete(entry)}
                 />
                 {i < pageEntries.length - 1 && <Separator />}
               </div>

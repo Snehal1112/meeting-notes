@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Toaster } from "sonner";
 import { TitleBar } from "@/components/TitleBar";
 import { ConfigDialog } from "@/components/ConfigDialog";
 import { RecorderWidget, type WidgetState } from "@/components/RecorderWidget";
@@ -141,6 +142,16 @@ function App() {
     setOrphaned((prev) => prev.filter((m) => m.id !== id));
   };
 
+  // Retrying a Failed meeting from History reuses the exact same
+  // "resumeMeeting" hand-off handleResume uses for an interrupted
+  // recording: closing History and setting this re-enters RecorderWidget's
+  // processing effect directly, re-running transcription (and, on success,
+  // summarization) from where it failed.
+  const handleRetryMeeting = (meeting: MeetingMeta) => {
+    setShowHistory(false);
+    setResumeMeeting(meeting);
+  };
+
   const handleSave = async (config: AppConfig) => {
     await saveConfig(config);
     setShowConfigDialog(false);
@@ -173,8 +184,14 @@ function App() {
   // declared up with the sizing hooks above, which key off the same value.)
 
   return (
-    <div
-      ref={isPill ? undefined : rootRef}
+    <>
+      {/* Mounted once, outside the pill/full-chrome split -- toasts (meeting
+          history's delete-undo) are only ever triggered from full-chrome
+          state, but the component itself is a fixed-position overlay that
+          doesn't participate in rootRef's content measurement either way. */}
+      <Toaster position="bottom-center" />
+      <div
+        ref={isPill ? undefined : rootRef}
       className={
         isPill
           ? "h-screen w-screen flex items-center justify-center bg-transparent"
@@ -208,7 +225,7 @@ function App() {
       )}
       {!isPill && !showConfigDialog && showHistory && (
         <div className="flex-1 p-4 overflow-hidden">
-          <MeetingHistory onBack={() => setShowHistory(false)} />
+          <MeetingHistory onBack={() => setShowHistory(false)} onRetryMeeting={handleRetryMeeting} />
         </div>
       )}
       {(isPill || (!showConfigDialog && !showHistory)) && (
@@ -216,7 +233,8 @@ function App() {
           <RecorderWidget resumeMeeting={resumeMeeting} onStateChange={setWidgetState} />
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }
 
