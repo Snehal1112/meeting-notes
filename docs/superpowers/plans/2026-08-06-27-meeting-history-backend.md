@@ -6,6 +6,34 @@
 
 **Scale decision:** Filtering, searching, and pagination all happen **client-side** in the frontend, not as query parameters on the backend command. A personal local recording app's meeting count is realistically in the tens-to-low-hundreds, not enough to need server-side pagination — `get_meeting_history()` just returns everything, and plan 28 slices/filters it in React state. This keeps the backend to three simple commands instead of a parameterized query API.
 
+> **Deviation (2026-08-07):** This plan's "plan 22" dependency
+> (`summary_result.json` persistence) did not actually exist anywhere in
+> the repo — no such plan file, and `write_summary_files` in
+> `summary_commands.rs` only ever wrote `summary.md`/`action_items.json`.
+> Closed by adding a `summary_result.json` write there (the raw
+> `SummaryResult` as JSON) before implementing Task 1's snippet
+> extraction, exactly as this plan assumed once that gap was closed.
+>
+> Task 1's `failure_reason` guess (an `error.txt` file) also didn't exist,
+> and both `mark_meeting_failed` functions (`transcription_commands.rs`,
+> `summary_commands.rs`) discarded the real error string entirely. Closed
+> by adding `error_message: Option<String>` directly to `MeetingMeta`
+> (serde default) instead of a new file — `MeetingHistoryEntry` flattens
+> `meta` in, so `failure_reason` was dropped as its own field; the error
+> text is just `meta.error_message`.
+>
+> Commands register in `lib.rs`'s `invoke_handler` + `commands/mod.rs`'s
+> module list in this repo, not `main.rs` as the plan's steps say. Each
+> command reuses the existing `resolved_base_dir()` helper from
+> `commands/mod.rs` rather than duplicating its `resolve_config()` +
+> `base_dir()` logic inline. `reveal_in_file_manager` mirrors
+> `storage_commands::open_summary`'s pattern exactly (index lookup +
+> direct `AppHandle::opener()` call, bypassing the opener plugin's static
+> ACL scope) rather than the plan's simpler sketch.
+>
+> Manual verification (Task 3 Step 2) is still owed — untouched by this
+> deviation, still needs a live `bun run tauri dev` pass.
+
 ---
 
 ### Task 1: get_meeting_history — full list with snippets
