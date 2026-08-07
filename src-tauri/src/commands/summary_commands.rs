@@ -115,9 +115,13 @@ fn find_meeting(base: &Path, meeting_id: &str) -> Result<MeetingMeta, String> {
         .ok_or_else(|| format!("meeting {meeting_id} not found"))
 }
 
-/// Writes `summary.md` and `action_items.json` into the meeting's directory.
-/// `meeting` supplies the title, date and duration that head the document,
-/// so those are never taken from the model.
+/// Writes `summary.md`, `action_items.json`, and `summary_result.json` into
+/// the meeting's directory. `meeting` supplies the title, date and duration
+/// that head the document, so those are never taken from the model.
+/// `summary_result.json` is the raw structured `SummaryResult` — meeting
+/// history (`history_commands.rs`) reads its `summary` field back out for a
+/// row snippet, so this stays the single source of truth for that text
+/// rather than re-deriving it from the rendered markdown.
 fn write_summary_files(
     meeting_dir: &Path,
     result: &SummaryResult,
@@ -145,6 +149,12 @@ fn write_summary_files(
     std::fs::write(
         meeting_dir.join("action_items.json"),
         serde_json::to_string_pretty(&action_items_json).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+
+    std::fs::write(
+        meeting_dir.join("summary_result.json"),
+        serde_json::to_string_pretty(result).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())
 }
@@ -232,6 +242,13 @@ mod tests {
         assert!(action_items_json.contains("Send follow-up email"));
         assert!(action_items_json.contains("\"owner\": \"Parker\""));
         assert!(action_items_json.contains("\"completed\": false"));
+
+        let summary_result_json =
+            std::fs::read_to_string(meeting_dir.join("summary_result.json"))
+                .expect("read summary_result.json");
+        let round_tripped: SummaryResult =
+            serde_json::from_str(&summary_result_json).expect("parse summary_result.json");
+        assert_eq!(round_tripped.summary, "Discussed the roadmap.");
 
         std::fs::remove_dir_all(&base).ok();
     }
