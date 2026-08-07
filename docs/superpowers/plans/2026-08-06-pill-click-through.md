@@ -2,6 +2,18 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Deviation (2026-08-07):** Task 1's poll-thread design (`is_inside_pill` +
+> `set_ignore_cursor_events` on a 50ms timer) shipped as planned, but was
+> later replaced wholesale in `src-tauri/src/commands/window_commands.rs`
+> with a native GTK `input_shape_combine_region` mask (`stadium_region` +
+> `apply_click_through`), reapplied on the window's `Resized` event
+> (registered in `lib.rs`) instead of polled. The poll design had a real
+> failure class around leaving the window stuck ignoring cursor events on a
+> stop/tick race; the GTK mask has no such state to get stuck in. The
+> `core:window:allow-set-ignore-cursor-events` capability from Task 1 Step 1
+> was removed accordingly — nothing calls that API anymore. Task 3's manual
+> verification is still owed against the new design, not the old one.
+
 **Goal:** Make the Recording/Processing pills' transparent corners
 click-through, so clicks that land there pass to whatever is behind the
 window instead of being captured by it.
