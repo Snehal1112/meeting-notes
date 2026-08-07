@@ -112,12 +112,14 @@ export function MeetingHistory({ onBack, onRetryMeeting, onContentChange }: Meet
     });
   };
 
-  const filtered = (entries ?? []).filter((e) => {
-    const matchesSearch = e.title.toLowerCase().includes(search.toLowerCase());
-    const matchesType = typeFilter === "all" || e.meeting_type === typeFilter;
-    const matchesStatus = statusFilter === "all" || e.status === statusFilter;
-    return matchesSearch && matchesType && matchesStatus;
-  });
+  const filtered = (entries ?? [])
+    .filter((e) => {
+      const matchesSearch = e.title.toLowerCase().includes(search.toLowerCase());
+      const matchesType = typeFilter === "all" || e.meeting_type === typeFilter;
+      const matchesStatus = statusFilter === "all" || e.status === statusFilter;
+      return matchesSearch && matchesType && matchesStatus;
+    })
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   // Clamped rather than driven by an effect: filtering can shrink the result

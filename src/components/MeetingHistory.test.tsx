@@ -77,6 +77,18 @@ describe("MeetingHistory", () => {
     expect(screen.queryByText(/no meetings yet/i)).not.toBeInTheDocument();
   });
 
+  it("renders entries sorted by created_at newest first", async () => {
+    const old = entry({ id: "old", title: "Old", created_at: "2026-08-01T09:00:00Z" });
+    const newer = entry({ id: "newer", title: "Newer", created_at: "2026-08-02T09:00:00Z" });
+    const newest = entry({ id: "newest", title: "Newest", created_at: "2026-08-03T09:00:00Z" });
+    getMeetingHistory.mockResolvedValue([old, newer, newest]);
+    render(<MeetingHistory onBack={() => {}} />);
+
+    await screen.findByText("Newest");
+    const titles = screen.getAllByText(/^(Old|Newer|Newest)$/).map((el) => el.textContent);
+    expect(titles).toEqual(["Newest", "Newer", "Old"]);
+  });
+
   it("calls onBack when the back button is clicked", async () => {
     getMeetingHistory.mockResolvedValue([]);
     const onBack = vi.fn();
