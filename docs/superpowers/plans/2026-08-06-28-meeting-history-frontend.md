@@ -4,6 +4,40 @@
 
 **Goal:** A History icon in the title bar (next to Settings) opens a list view showing every past meeting — search, filter by type/status/date, paginated 5-per-page, each row showing title/date/duration/type/status/summary snippet, with a "⋯" menu for Reveal-in-file-manager/Re-run-summarization/Delete. Failed meetings get a prominent Retry action instead of a snippet. Delete removes the row immediately with an undo toast rather than a confirm step. Window grows taller (up to 600px) to show it, staying at Idle's existing ~400px width.
 
+> **Deviation (2026-08-07):** Implemented as planned with these corrections:
+> - `TitleBarProps` has no `onClose` (close is already handled internally);
+>   only `onOpenHistory` was added. `MeetingHistory` got its own Back button
+>   in its header, since the plan never wired a close affordance anywhere.
+> - `useAutoResizeWindow` had no max-height override, only a monitor-fraction
+>   cap — added an optional `maxHeightOverride` param (used only for
+>   History's 600px cap) rather than hand-clamping in `App.tsx`.
+> - `failure_reason` doesn't exist — plan 27 shipped `error_message`
+>   flattened directly onto `MeetingHistoryEntry`'s `meta`, not a separate
+>   field. All row/filter code reads `entry.error_message`.
+> - Row click uses the existing `openSummary(id)` wrapper (index-validated
+>   path, matches `RecorderWidget`'s own usage) instead of raw
+>   `dataDir`-based path concatenation — no `dataDir` state needed at all.
+> - `summarizeMeeting` takes a meeting id, not a whole entry; Re-run calls
+>   `summarizeMeeting(entry.id)`.
+> - **Retry's hand-off (flagged in the design spec as the most
+>   under-specified part of this feature) is `App.tsx`'s existing
+>   `resumeMeeting` state** — the same mechanism `ResumePrompt`'s
+>   `handleResume` already uses to hand an interrupted recording to
+>   `RecorderWidget`. `MeetingHistory` takes an optional `onRetryMeeting`
+>   prop; `App.tsx` implements it as `setResumeMeeting` + closing History.
+>   No second processing hand-off was built.
+> - No `next-themes` in this repo (dark mode is a static, never-toggled CSS
+>   class) — used `sonner`'s own `<Toaster/>` directly instead of the
+>   shadcn wrapper, which requires that dependency.
+> - Task 3's file list (`src-tauri/Cargo.toml`, `src-tauri/src/main.rs`) was
+>   wrong — no Rust changes were needed; all three backend commands already
+>   shipped in plan 27, and this repo registers commands in `lib.rs`, not
+>   `main.rs`, anyway.
+>
+> Manual verification (each task's own Step 5, plus a live click-through of
+> Retry/Re-run/Delete-undo) is still owed — no `bun run tauri dev` pass has
+> occurred in this environment.
+
 ---
 
 ### Task 1: History icon, view shell, empty state
