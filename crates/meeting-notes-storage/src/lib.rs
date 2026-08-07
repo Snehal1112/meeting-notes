@@ -47,6 +47,7 @@ pub fn create_meeting(
         status: MeetingStatus::Recording,
         used_system_audio: false,
         meeting_type,
+        error_message: None,
     };
 
     std::fs::create_dir_all(meta.dir_path(base))?;

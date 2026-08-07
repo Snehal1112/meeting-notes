@@ -38,6 +38,11 @@ pub struct MeetingMeta {
     /// would otherwise make the whole on-disk index unreadable.
     #[serde(default)]
     pub meeting_type: MeetingType,
+    /// Set alongside `status: Failed` by the transcription/summary commands'
+    /// `mark_meeting_failed` helpers, so meeting history can show why a
+    /// meeting failed without a separate error file to keep in sync.
+    #[serde(default)]
+    pub error_message: Option<String>,
 }
 
 impl MeetingMeta {

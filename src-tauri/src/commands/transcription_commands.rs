@@ -27,7 +27,7 @@ pub async fn transcribe_meeting(
             // fire-and-log pattern already used in RecorderWidget.tsx's
             // handleStart: a failure here must not mask the original error
             // returned to the caller.
-            mark_meeting_failed(&base, meeting);
+            mark_meeting_failed(&base, meeting, &e);
             Err(e)
         }
     }
@@ -96,11 +96,13 @@ async fn run_transcription(
     Ok(updated)
 }
 
-/// Best-effort marks `meeting` Failed in the index. Logs to stderr (rather
-/// than propagating) if even that write fails, since the caller already has
-/// a more relevant error to report.
-fn mark_meeting_failed(base: &Path, mut meeting: MeetingMeta) {
+/// Best-effort marks `meeting` Failed in the index, recording `error` so
+/// meeting history can show why. Logs to stderr (rather than propagating)
+/// if even that write fails, since the caller already has a more relevant
+/// error to report.
+fn mark_meeting_failed(base: &Path, mut meeting: MeetingMeta, error: &str) {
     meeting.status = MeetingStatus::Failed;
+    meeting.error_message = Some(error.to_string());
     if let Err(e) = update_meeting(base, &meeting) {
         eprintln!(
             "failed to mark meeting {} as Failed after a transcription error: {e}",
@@ -176,7 +178,7 @@ mod tests {
         let meeting = create_meeting(&base, "Test meeting", MeetingType::AutoDetect).expect("create meeting");
         append_to_index(&base, &meeting).expect("append to index");
 
-        mark_meeting_failed(&base, meeting.clone());
+        mark_meeting_failed(&base, meeting.clone(), "whisper.cpp exited with status 1");
 
         let index = load_index(&base).expect("load index");
         let persisted = index
@@ -184,6 +186,10 @@ mod tests {
             .find(|m| m.id == meeting.id)
             .expect("meeting present in index");
         assert_eq!(persisted.status, MeetingStatus::Failed);
+        assert_eq!(
+            persisted.error_message.as_deref(),
+            Some("whisper.cpp exited with status 1")
+        );
 
         std::fs::remove_dir_all(&base).ok();
     }
@@ -252,7 +258,7 @@ mod tests {
         let base = temp_base("missing-from-index");
         let meeting = create_meeting(&base, "Untracked meeting", MeetingType::AutoDetect).expect("create meeting");
 
-        mark_meeting_failed(&base, meeting);
+        mark_meeting_failed(&base, meeting, "some error");
 
         std::fs::remove_dir_all(&base).ok();
     }

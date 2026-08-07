@@ -11,6 +11,7 @@ fn meeting() -> MeetingMeta {
         status: MeetingStatus::Done,
         used_system_audio: true,
         meeting_type: MeetingType::AutoDetect,
+        error_message: None,
     }
 }
 

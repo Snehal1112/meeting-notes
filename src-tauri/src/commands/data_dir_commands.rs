@@ -153,6 +153,7 @@ mod tests {
             status: MeetingStatus::Done,
             used_system_audio: false,
             meeting_type: MeetingType::AutoDetect,
+            error_message: None,
         }
     }
 
