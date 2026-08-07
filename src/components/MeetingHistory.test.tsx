@@ -195,6 +195,106 @@ describe("MeetingHistory", () => {
     });
   });
 
+  describe("Date filter", () => {
+    // "Now" is pinned to a Saturday so that the week/month/last-30 buckets
+    // below have a fixed, deterministic boundary to assert against.
+    const NOW = new Date("2026-08-15T12:00:00Z");
+
+    it("shows every entry regardless of date when 'Date: All time' is selected", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(NOW);
+      getMeetingHistory.mockResolvedValue([
+        entry({ id: "today", title: "Today Meeting", created_at: "2026-08-15T08:00:00Z" }),
+        entry({ id: "old", title: "Old Meeting", created_at: "2026-06-01T08:00:00Z" }),
+      ]);
+      render(<MeetingHistory onBack={() => {}} />);
+
+      expect(await screen.findByText("Today Meeting")).toBeInTheDocument();
+      expect(screen.getByText("Old Meeting")).toBeInTheDocument();
+      vi.useRealTimers();
+    });
+
+    it("narrows to only today's meetings when 'Today' is selected", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(NOW);
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      getMeetingHistory.mockResolvedValue([
+        entry({ id: "today", title: "Today Meeting", created_at: "2026-08-15T08:00:00Z" }),
+        entry({ id: "old", title: "Old Meeting", created_at: "2026-07-20T08:00:00Z" }),
+      ]);
+      render(<MeetingHistory onBack={() => {}} />);
+      await screen.findByText("Today Meeting");
+
+      await user.click(screen.getByLabelText(/date/i));
+      await user.click(await screen.findByRole("option", { name: "Today" }));
+
+      expect(await screen.findByText("Today Meeting")).toBeInTheDocument();
+      expect(screen.queryByText("Old Meeting")).not.toBeInTheDocument();
+      vi.useRealTimers();
+    });
+
+    it("narrows to this week's meetings when 'This week' is selected", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(NOW);
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      getMeetingHistory.mockResolvedValue([
+        // Tuesday of the current (Mon 8/10 - Sun 8/16) week.
+        entry({ id: "in-week", title: "In Week Meeting", created_at: "2026-08-11T08:00:00Z" }),
+        // Sunday of the previous week.
+        entry({ id: "out-week", title: "Out Week Meeting", created_at: "2026-08-09T08:00:00Z" }),
+      ]);
+      render(<MeetingHistory onBack={() => {}} />);
+      await screen.findByText("In Week Meeting");
+
+      await user.click(screen.getByLabelText(/date/i));
+      await user.click(await screen.findByRole("option", { name: "This week" }));
+
+      expect(await screen.findByText("In Week Meeting")).toBeInTheDocument();
+      expect(screen.queryByText("Out Week Meeting")).not.toBeInTheDocument();
+      vi.useRealTimers();
+    });
+
+    it("narrows to this month's meetings when 'This month' is selected", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(NOW);
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      getMeetingHistory.mockResolvedValue([
+        entry({ id: "in-month", title: "In Month Meeting", created_at: "2026-08-03T08:00:00Z" }),
+        entry({ id: "out-month", title: "Out Month Meeting", created_at: "2026-07-20T08:00:00Z" }),
+      ]);
+      render(<MeetingHistory onBack={() => {}} />);
+      await screen.findByText("In Month Meeting");
+
+      await user.click(screen.getByLabelText(/date/i));
+      await user.click(await screen.findByRole("option", { name: "This month" }));
+
+      expect(await screen.findByText("In Month Meeting")).toBeInTheDocument();
+      expect(screen.queryByText("Out Month Meeting")).not.toBeInTheDocument();
+      vi.useRealTimers();
+    });
+
+    it("narrows to a rolling last-30-days window when 'Last 30 days' is selected", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(NOW);
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      getMeetingHistory.mockResolvedValue([
+        // 21 days before "now" -- inside the rolling window.
+        entry({ id: "in-30", title: "In 30 Days Meeting", created_at: "2026-07-25T08:00:00Z" }),
+        // Well outside the rolling window.
+        entry({ id: "out-30", title: "Out 30 Days Meeting", created_at: "2026-06-01T08:00:00Z" }),
+      ]);
+      render(<MeetingHistory onBack={() => {}} />);
+      await screen.findByText("In 30 Days Meeting");
+
+      await user.click(screen.getByLabelText(/date/i));
+      await user.click(await screen.findByRole("option", { name: "Last 30 days" }));
+
+      expect(await screen.findByText("In 30 Days Meeting")).toBeInTheDocument();
+      expect(screen.queryByText("Out 30 Days Meeting")).not.toBeInTheDocument();
+      vi.useRealTimers();
+    });
+  });
+
   describe("Retry", () => {
     it("calls onRetryMeeting with the failed meeting when Retry is clicked", async () => {
       const failed = entry({ status: "Failed", snippet: null, error_message: "boom" });

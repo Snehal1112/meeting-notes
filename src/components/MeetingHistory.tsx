@@ -39,11 +39,44 @@ interface MeetingHistoryProps {
 const PAGE_SIZE = 5;
 const UNDO_WINDOW_MS = 6000;
 
+// Returns whether `createdAt` falls within the local-time window named by
+// `dateFilter`, evaluated against the current time at call time.
+function matchesDateFilter(createdAt: string, dateFilter: string): boolean {
+  if (dateFilter === "all") return true;
+
+  const created = new Date(createdAt);
+  const now = new Date();
+
+  switch (dateFilter) {
+    case "today": {
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      return created >= startOfToday;
+    }
+    case "week": {
+      // ISO calendar week, Monday start. getDay() is 0 (Sun) .. 6 (Sat).
+      const daysSinceMonday = (now.getDay() + 6) % 7;
+      const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysSinceMonday);
+      return created >= startOfWeek;
+    }
+    case "month": {
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      return created >= startOfMonth;
+    }
+    case "last30": {
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      return created >= thirtyDaysAgo;
+    }
+    default:
+      return true;
+  }
+}
+
 export function MeetingHistory({ onBack, onRetryMeeting, onContentChange }: MeetingHistoryProps) {
   const [entries, setEntries] = useState<MeetingHistoryEntry[] | null>(null);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [dateFilter, setDateFilter] = useState<string>("all");
   const [page, setPage] = useState(1);
 
   const loadHistory = () =>
@@ -61,7 +94,7 @@ export function MeetingHistory({ onBack, onRetryMeeting, onContentChange }: Meet
   // criteria that change how many rows match.
   useEffect(() => {
     onContentChange?.();
-  }, [entries, page, search, typeFilter, statusFilter, onContentChange]);
+  }, [entries, page, search, typeFilter, statusFilter, dateFilter, onContentChange]);
 
   const handleReveal = async (entry: MeetingHistoryEntry) => {
     try {
@@ -117,7 +150,8 @@ export function MeetingHistory({ onBack, onRetryMeeting, onContentChange }: Meet
       const matchesSearch = e.title.toLowerCase().includes(search.toLowerCase());
       const matchesType = typeFilter === "all" || e.meeting_type === typeFilter;
       const matchesStatus = statusFilter === "all" || e.status === statusFilter;
-      return matchesSearch && matchesType && matchesStatus;
+      const matchesDate = matchesDateFilter(e.created_at, dateFilter);
+      return matchesSearch && matchesType && matchesStatus && matchesDate;
     })
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
 
@@ -185,9 +219,20 @@ export function MeetingHistory({ onBack, onRetryMeeting, onContentChange }: Meet
                 <SelectItem value="Failed">Failed</SelectItem>
               </SelectContent>
             </Select>
-            {/* Date filter deferred -- three Select triggers already fill the
-                available width at 400px; see the design spec's Explicitly
-                Cut section. */}
+          </div>
+          <div className="flex gap-1.5">
+            <Select value={dateFilter} onValueChange={updateFilter(setDateFilter)}>
+              <SelectTrigger aria-label="Date" className="h-7 text-[10px] w-auto gap-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Date: All time</SelectItem>
+                <SelectItem value="today">Today</SelectItem>
+                <SelectItem value="week">This week</SelectItem>
+                <SelectItem value="month">This month</SelectItem>
+                <SelectItem value="last30">Last 30 days</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div>
