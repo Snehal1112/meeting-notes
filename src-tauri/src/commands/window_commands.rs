@@ -13,18 +13,44 @@ pub struct ClickThroughState(pub Arc<AtomicBool>);
 
 /// Builds the input-shape region matching a `rounded-full` pill of `size`,
 /// one physical-pixel row at a time -- the same stadium geometry the pill's
-/// CSS renders (radius is always half the height). Handed to
-/// `input_shape_combine_region`, this makes GTK do per-pixel input
-/// hit-testing natively: pixels inside the stadium receive clicks, pixels
-/// in the pill's transparent corners pass them through to whatever is
-/// behind the window. Because the OS does this hit-testing itself, no
+/// CSS renders. A stadium's cap radius is always half its SHORTER
+/// dimension; which pair of ends gets rounded depends on which dimension is
+/// longer: wider-than-tall rounds the left/right ends (the Recording pill's
+/// original horizontal shape), taller-than-wide rounds the top/bottom ends
+/// instead (the vertical shape this function now also supports). The
+/// vertical case is computed by running the horizontal-stadium math against
+/// the transposed (height, width) dimensions, then transposing each
+/// resulting rectangle back -- reusing proven geometry via a 90-degree
+/// rotation rather than deriving a second closed-form independently.
+/// Handed to `input_shape_combine_region`, this makes GTK do per-pixel
+/// input hit-testing natively: pixels inside the stadium receive clicks,
+/// pixels in the pill's transparent corners pass them through to whatever
+/// is behind the window. Because the OS does this hit-testing itself, no
 /// runtime polling or cursor tracking is needed once the shape is set.
 #[cfg(target_os = "linux")]
 fn stadium_region(size: (f64, f64)) -> cairo::Region {
     let (width, height) = size;
+    if height > width {
+        let transposed_rects = horizontal_stadium_rects((height, width));
+        let rects: Vec<cairo::RectangleInt> = transposed_rects
+            .into_iter()
+            .map(|r| cairo::RectangleInt::new(r.y(), r.x(), r.height(), r.width()))
+            .collect();
+        cairo::Region::create_rectangles(&rects)
+    } else {
+        cairo::Region::create_rectangles(&horizontal_stadium_rects((width, height)))
+    }
+}
+
+/// The original per-row stadium-rectangle computation (unchanged math),
+/// factored out so `stadium_region` can share it between the horizontal
+/// case and the transposed vertical case instead of duplicating it.
+#[cfg(target_os = "linux")]
+fn horizontal_stadium_rects(size: (f64, f64)) -> Vec<cairo::RectangleInt> {
+    let (width, height) = size;
     let radius = height / 2.0;
     let row_count = height.round().max(0.0) as i32;
-    let rects: Vec<cairo::RectangleInt> = (0..row_count)
+    (0..row_count)
         .map(|row| {
             let y = row as f64 + 0.5;
             let dy = y - radius;
@@ -38,8 +64,7 @@ fn stadium_region(size: (f64, f64)) -> cairo::Region {
             let right = right.ceil().min(width) as i32;
             cairo::RectangleInt::new(left, row, (right - left).max(0), 1)
         })
-        .collect();
-    cairo::Region::create_rectangles(&rects)
+        .collect()
 }
 
 /// Applies or clears the pill's click-through mask for the window's current
@@ -127,6 +152,49 @@ mod tests {
         let region = stadium_region(RECORDING_PILL);
         assert!(!region.contains_point(-5, 10));
         assert!(!region.contains_point(300, 10));
+    }
+
+    const VERTICAL_RECORDING_PILL: (f64, f64) = (60.0, 196.0); // this plan's new Recording pill size; radius = width / 2.0 = 30.0
+
+    #[test]
+    fn vertical_contains_the_straight_middle_section() {
+        // Any x should be reachable at a y in the straight vertical band
+        // between the two caps (roughly radius..height-radius) -- pick x=1
+        // (near the left edge) and a y comfortably inside that band.
+        assert!(stadium_region(VERTICAL_RECORDING_PILL).contains_point(1, 98));
+    }
+
+    #[test]
+    fn vertical_contains_the_top_cap_center_row() {
+        // The row through the top cap's own center (y = radius = 30) should
+        // be reachable all the way to the horizontal edges (x near 0 and
+        // x near width), since the cap's widest point is exactly there --
+        // the same relationship the existing horizontal
+        // contains_the_left_cap_center_row/contains_the_right_cap_center_row
+        // tests check for the left/right caps, rotated 90 degrees.
+        assert!(stadium_region(VERTICAL_RECORDING_PILL).contains_point(1, 30));
+    }
+
+    #[test]
+    fn vertical_contains_the_bottom_cap_center_row() {
+        // Mirrors the top-cap test for the bottom cap (y = height - radius = 166).
+        assert!(stadium_region(VERTICAL_RECORDING_PILL).contains_point(58, 166));
+    }
+
+    #[test]
+    fn vertical_excludes_all_four_corners() {
+        let region = stadium_region(VERTICAL_RECORDING_PILL);
+        assert!(!region.contains_point(0, 0));
+        assert!(!region.contains_point(59, 0));
+        assert!(!region.contains_point(0, 195));
+        assert!(!region.contains_point(59, 195));
+    }
+
+    #[test]
+    fn vertical_excludes_points_outside_the_window_bounds() {
+        let region = stadium_region(VERTICAL_RECORDING_PILL);
+        assert!(!region.contains_point(-5, 10));
+        assert!(!region.contains_point(70, 10));
     }
 
     // No "processing pill" stadium-region test remains here on purpose: the
