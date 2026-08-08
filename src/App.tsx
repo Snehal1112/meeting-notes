@@ -21,19 +21,15 @@ import { setClickThroughTracking } from "@/lib/window";
 // config dialog's ability to grow the window taller than 300px.
 const PILL_SIZES: Record<"recording" | "processing", { width: number; height: number }> = {
   recording: { width: 224, height: 56 },
-  // Wider than the Recording pill: this pill can hold a Retry button and
-  // qualityWarning's icon, rendered in the global body font (JetBrains
-  // Mono, wider per-character than the Inter it was originally sized
-  // against). The width was 300px while this pill also held a two-provider
-  // picker (a Select trigger + "Generate Summary" button); with that picker
-  // removed, 280px is a conservative reduction -- not a full reversion to
-  // the original 260px, which was already too tight for the icon and font
-  // alone before the picker ever existed (see git history on this line).
-  // Height is taller than the Recording pill's 56px: the "summarizing"
-  // sub-status's explanatory sentence wraps to 2 lines instead of being
-  // truncated to 1 (see RecorderWidget.tsx), and needs the extra vertical
-  // room to avoid trading a horizontal overflow bug for a vertical one.
-  processing: { width: 280, height: 64 },
+  // Sized for the SummaryChecklist card (3 step rows + label + optional
+  // chunk-progress line, see SummaryChecklist.tsx), not the compact single
+  // line this pill originally held. Applies for the whole Processing state
+  // -- both the Transcribing and Summarizing sub-statuses -- rather than
+  // resizing a second time when the checklist actually appears, since
+  // Transcribing spends only a few seconds in a slightly-too-tall card and
+  // a second resize isn't worth threading ProcessingStatus up from
+  // RecorderWidget into this table just for that.
+  processing: { width: 340, height: 220 },
 };
 
 function App() {

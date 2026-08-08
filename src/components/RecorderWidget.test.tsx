@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Toaster } from "sonner";
 import { RecorderWidget } from "./RecorderWidget";
 import type { MeetingMeta } from "@/lib/storage";
+import type { SummaryProgress } from "@/lib/summary";
 
 vi.mock("@/lib/recording", () => ({
   startRecording: vi.fn(),
@@ -33,12 +34,13 @@ vi.mock("@/lib/config", () => ({
 vi.mock("@/lib/summary", async (importOriginal) => {
   // resolveProvider (and the toProviderKind it uses internally) are pure
   // config-resolution logic (no Tauri invoke), so the real implementation
-  // is used here — only summarizeMeeting (the actual IPC call) needs
-  // mocking.
+  // is used here — only summarizeMeeting and onSummaryProgress (the actual
+  // IPC call and event listener) need mocking.
   const actual = await importOriginal<typeof import("@/lib/summary")>();
   return {
     ...actual,
     summarizeMeeting: vi.fn(),
+    onSummaryProgress: vi.fn(),
   };
 });
 
@@ -71,7 +73,8 @@ beforeEach(async () => {
   vi.mocked(transcribeMeeting).mockReset().mockResolvedValue(undefined);
   vi.mocked(onTranscriptionComplete).mockReset().mockResolvedValue(() => {});
 
-  const { summarizeMeeting } = await import("@/lib/summary");
+  const { summarizeMeeting, onSummaryProgress } = await import("@/lib/summary");
+  vi.mocked(onSummaryProgress).mockReset().mockResolvedValue(() => {});
   vi.mocked(summarizeMeeting).mockReset().mockResolvedValue({
     meeting_type: "Team sync",
     attendees: [],
@@ -926,6 +929,14 @@ describe("RecorderWidget single provider configured", () => {
 });
 
 describe("RecorderWidget long-run progress", () => {
+  // The static "Long meetings are summarized in several passes -- this may
+  // take a few minutes" disclaimer this test used to check for is gone as of
+  // Task 5: SummaryChecklist now owns the entire summarizing sub-status, and
+  // conveys the same "this is multi-step and takes a while" information
+  // through its own three visible pass rows rather than a separate sentence
+  // (see SummaryChecklist.tsx and RecorderWidget.tsx's processing-state
+  // return block). Updated to assert the checklist itself renders instead of
+  // a bare "Generating summary…" label with nothing underneath it.
   it("explains that summarizing takes a while instead of showing a bare label", async () => {
     const { onTranscriptionComplete } = await import("@/lib/transcription");
     const { summarizeMeeting } = await import("@/lib/summary");
@@ -945,6 +956,117 @@ describe("RecorderWidget long-run progress", () => {
     });
 
     expect(await screen.findByText(/generating summary/i)).toBeInTheDocument();
-    expect(screen.getByText(/may take a few minutes/i)).toBeInTheDocument();
+    expect(screen.getByText("Extracting topics & summary")).toBeInTheDocument();
+    expect(screen.getByText("Finding action items")).toBeInTheDocument();
+    expect(screen.getByText("Checking for open questions")).toBeInTheDocument();
+  });
+});
+
+describe("RecorderWidget summary checklist", () => {
+  // Mirrors captureTranscriptionCallback below (in the "RecorderWidget
+  // summary integration" describe block): registration only happens once
+  // the widget's own effects actually run (after the async handleStop ->
+  // setState("processing") chain settles), which is not guaranteed by the
+  // time fireEvent.click() returns -- each fire* helper below must wait for
+  // its callback to actually be captured before invoking it, or it throws
+  // "... is not a function" against a still-undefined variable.
+  async function captureBothCallbacks() {
+    const { onTranscriptionComplete } = await import("@/lib/transcription");
+    const { onSummaryProgress } = await import("@/lib/summary");
+    let transcriptionCallback: ((meeting: MeetingMeta) => void) | undefined;
+    let progressCallback: ((progress: SummaryProgress) => void) | undefined;
+    vi.mocked(onTranscriptionComplete).mockImplementation(async (callback) => {
+      transcriptionCallback = callback;
+      return () => {};
+    });
+    vi.mocked(onSummaryProgress).mockImplementation(async (callback) => {
+      progressCallback = callback;
+      return () => {};
+    });
+    return {
+      // Block bodies here, not concise-arrow implicit returns: with
+      // summarizeMeeting mocked to hang forever in several of this
+      // describe block's tests, an implicit `async () => cb!(x)` would
+      // return -- and therefore have act() await -- cb's own returned
+      // promise (transcriptionCallback/progressCallback are both async
+      // functions themselves), which chains through runSummarization's
+      // still-pending summarizeMeeting call and never resolves. Not
+      // returning that promise lets act() settle once the synchronous
+      // portion of the callback and its immediately-following microtasks
+      // have flushed, same as captureTranscriptionCallback's `fire` above.
+      fireTranscription: async (meeting: MeetingMeta) => {
+        await vi.waitFor(() => expect(transcriptionCallback).toBeDefined());
+        await act(async () => {
+          transcriptionCallback!(meeting);
+        });
+      },
+      fireProgress: async (progress: SummaryProgress) => {
+        await vi.waitFor(() => expect(progressCallback).toBeDefined());
+        await act(async () => {
+          progressCallback!(progress);
+        });
+      },
+    };
+  }
+
+  const transcribedMeeting: MeetingMeta = {
+    ...fakeMeeting,
+    status: "Summarizing",
+    duration_seconds: 42,
+  };
+
+  it("shows the checklist step named by the latest summary-progress event", async () => {
+    const { summarizeMeeting } = await import("@/lib/summary");
+    vi.mocked(summarizeMeeting).mockImplementation(() => new Promise(() => {}));
+    const { fireTranscription, fireProgress } = await captureBothCallbacks();
+
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+    await fireTranscription(transcribedMeeting);
+
+    await fireProgress({ pass: "ActionItems", chunk_index: 0, chunk_total: 1 });
+
+    expect(screen.getByText("Extracting topics & summary").className).toContain("line-through");
+    expect(screen.getByText("Finding action items").className).not.toContain("line-through");
+  });
+
+  it("briefly shows the failed step before returning to idle when summarization fails mid-checklist", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { summarizeMeeting } = await import("@/lib/summary");
+      let rejectSummarize: ((err: Error) => void) | undefined;
+      vi.mocked(summarizeMeeting).mockImplementation(
+        () => new Promise((_resolve, reject) => (rejectSummarize = reject))
+      );
+      const { fireTranscription, fireProgress } = await captureBothCallbacks();
+
+      render(
+        <>
+          <Toaster />
+          <RecorderWidget />
+        </>
+      );
+      fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+      fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+      await fireTranscription(transcribedMeeting);
+      await fireProgress({ pass: "ActionItems", chunk_index: 0, chunk_total: 1 });
+
+      await act(async () => rejectSummarize!(new Error("endpoint down")));
+
+      // Immediately after the rejection, the checklist is still visible
+      // with the active step marked errored -- the widget must not have
+      // snapped back to idle yet.
+      expect(screen.getByText("Finding action items").className).toContain("text-red-600");
+      expect(screen.queryByRole("button", { name: /start recording/i })).not.toBeInTheDocument();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
+
+      expect(await screen.findByRole("button", { name: /start recording/i })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

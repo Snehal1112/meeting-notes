@@ -13,7 +13,14 @@ import {
 } from "@/lib/storage";
 import { transcribeMeeting, onTranscriptionComplete } from "@/lib/transcription";
 import { getConfig, setSummaryProvider, type AppConfig } from "@/lib/config";
-import { summarizeMeeting, resolveProvider, type ProviderKind } from "@/lib/summary";
+import {
+  summarizeMeeting,
+  resolveProvider,
+  onSummaryProgress,
+  type ProviderKind,
+  type SummaryPass,
+} from "@/lib/summary";
+import { SummaryChecklist } from "@/components/SummaryChecklist";
 import { Waveform } from "@/components/Waveform";
 import { ProviderPicker, type ProviderName } from "@/components/ProviderPicker";
 import { startWindowDrag } from "@/lib/drag";
@@ -54,6 +61,9 @@ export function RecorderWidget({
   const [recordingError, setRecordingError] = useState<string | null>(null);
   const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatus>("transcribing");
+  const [summaryStep, setSummaryStep] = useState<SummaryPass | "complete" | null>(null);
+  const [summaryChunk, setSummaryChunk] = useState<{ index: number; total: number }>({ index: 0, total: 1 });
+  const [summaryFailed, setSummaryFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const currentMeetingRef = useRef<MeetingMeta | null>(null);
@@ -64,6 +74,10 @@ export function RecorderWidget({
   // before every set* call so an abandoned run's result or error never
   // lands after the fact.
   const summarizeRunRef = useRef(0);
+  // Mirrors summaryStep but readable synchronously inside runSummarization's
+  // catch block without adding summaryStep to that callback's dependency
+  // array (which would otherwise recreate it on every progress event).
+  const summaryStepRef = useRef<SummaryPass | "complete" | null>(null);
   // Guards runTranscription against a real double-click: both native click
   // events can dispatch before React re-renders the Retry button away, so
   // the guard has to live outside render rather than relying on the button
@@ -160,12 +174,28 @@ export function RecorderWidget({
     // skipped so a late-arriving run cannot yank the UI back.
     const run = ++summarizeRunRef.current;
     setProcessingStatus("summarizing");
+    setSummaryStep(null);
+    summaryStepRef.current = null;
+    setSummaryChunk({ index: 0, total: 1 });
+    setSummaryFailed(false);
+
+    let unlistenProgress: (() => void) | undefined;
     try {
+      unlistenProgress = await onSummaryProgress((progress) => {
+        if (summarizeRunRef.current !== run) return;
+        setSummaryStep(progress.pass);
+        summaryStepRef.current = progress.pass;
+        setSummaryChunk({ index: progress.chunk_index, total: progress.chunk_total });
+      });
+      if (summarizeRunRef.current !== run) return;
+
       // Called with only one argument (no explicit `undefined` forwarded)
       // when there is nothing to override, so the zero-provider path is
       // observably identical to the pre-picker call site.
       provider ? await summarizeMeeting(meetingId, provider) : await summarizeMeeting(meetingId);
       if (summarizeRunRef.current !== run) return;
+      setSummaryStep("complete");
+      summaryStepRef.current = "complete";
       try {
         await openSummary(meetingId);
       } catch (err) {
@@ -177,12 +207,21 @@ export function RecorderWidget({
     } catch (err) {
       if (summarizeRunRef.current !== run) return;
       // The transcript is already on disk, so a summary failure is not data
-      // loss. There is no in-app screen to surface it on, so the widget
-      // still returns to idle rather than being stuck on "Generating
-      // summary…" forever -- the toast is what tells the user it happened.
+      // loss. The toast is what tells the user it happened either way; if
+      // the checklist ever showed a step in progress, briefly mark it
+      // errored before returning to idle instead of yanking the pill away
+      // the instant the toast fires, so the user sees which step failed
+      // rather than the checklist just vanishing mid-step.
       console.error("Summary generation failed:", errorMessage(err));
       toast.error(`Failed to generate summary: ${errorMessage(err)}`);
+      if (summaryStepRef.current !== null && summaryStepRef.current !== "complete") {
+        setSummaryFailed(true);
+        unlistenProgress?.();
+        unlistenProgress = undefined;
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
     } finally {
+      unlistenProgress?.();
       if (summarizeRunRef.current === run) setState("idle");
     }
   }, []);
@@ -458,10 +497,10 @@ export function RecorderWidget({
         // matters more here: this pill can hold a Retry button, which would
         // otherwise have its mousedown turned into a window drag on the way up.
         onMouseDown={(e) => startWindowDrag(e, { requireSelfTarget: true })}
-        className="h-full w-full flex items-center justify-center gap-2 bg-background border rounded-full px-3 py-2 shadow-sm text-sm text-muted-foreground"
+        className="h-full w-full flex items-center justify-center gap-2 bg-background border rounded-2xl px-4 py-3 shadow-sm text-sm text-muted-foreground"
       >
         {qualityWarning && (
-          // Fixed-size pill (280x64), so an arbitrary-length backend string
+          // Fixed-size card (340x220), so an arbitrary-length backend string
           // gets a compact icon + tooltip/accessible-label instead of a full
           // line, the same treatment as micOnlyWarning in the Recording pill.
           <span
@@ -502,25 +541,17 @@ export function RecorderWidget({
               Dismiss
             </Button>
           </div>
+        ) : processingStatus === "summarizing" ? (
+          <SummaryChecklist
+            currentStep={summaryStep}
+            failed={summaryFailed}
+            chunkIndex={summaryChunk.index}
+            chunkTotal={summaryChunk.total}
+          />
         ) : (
           <div className="flex items-center gap-2 min-w-0">
             <span className="h-3.5 w-3.5 rounded-full border-2 border-primary/20 border-t-primary animate-spin flex-shrink-0" />
-            <div className="flex flex-col min-w-0 leading-tight">
-              <span className="text-xs truncate">
-                {processingStatus === "transcribing" ? "Transcribing…" : "Generating summary…"}
-              </span>
-              {processingStatus === "summarizing" && (
-                // Wrapped, not truncated: this sentence is long enough that
-                // ellipsis-truncating it loses real information, and wrapping
-                // to 2 lines can never overflow the pill horizontally no
-                // matter how the flex/min-width chain above it resolves --
-                // unlike single-line truncate, which depends on every
-                // ancestor computing a definite width correctly.
-                <span className="text-[9px] whitespace-normal">
-                  Long meetings are summarized in several passes — this may take a few minutes.
-                </span>
-              )}
-            </div>
+            <span className="text-xs truncate">Transcribing…</span>
           </div>
         )}
       </div>
