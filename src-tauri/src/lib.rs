@@ -94,13 +94,8 @@ pub fn run() {
 
             commands::mic_watcher_commands::start_mic_watcher(app.handle());
 
-            let icon_bytes = include_bytes!("../icons/32x32.png");
-            let img = image::load_from_memory(icon_bytes)
-                .expect("failed to load tray icon")
-                .to_rgba8();
-            let width = img.width();
-            let height = img.height();
-            let tray_icon = Image::new_owned(img.into_raw(), width, height);
+            let tray_icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))
+                .expect("failed to load tray icon");
 
             TrayIconBuilder::new()
                 .icon(tray_icon)
