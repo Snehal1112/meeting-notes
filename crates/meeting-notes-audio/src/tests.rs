@@ -81,6 +81,41 @@ fn analyze_and_trim_clipping_is_flagged_independently_of_dc_offset() {
     }
 }
 
+/// When `trim_and_check_file` is called on a WAV with zero samples (just a
+/// header), it must return an error immediately rather than silently writing
+/// an empty WAV. This prevents whisper.cpp from seeing a header-only file and
+/// crashing with a cryptic native error.
+#[test]
+fn trim_and_check_file_errors_on_zero_samples() {
+    let sample_rate = 16_000u32;
+    let tmp = std::env::temp_dir().join(format!(
+        "trim-and-check-test-zero-{}-{}.wav",
+        std::process::id(),
+        line!()
+    ));
+
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    {
+        let writer = hound::WavWriter::create(&tmp, spec).expect("should create wav");
+        // Deliberately write zero samples, just finalize the empty header.
+        writer.finalize().expect("should finalize empty wav");
+    }
+
+    let result = trim_and_check_file(&tmp);
+    assert!(
+        result.is_err(),
+        "expected trim_and_check_file to error on zero samples, got {:?}",
+        result
+    );
+
+    let _ = std::fs::remove_file(&tmp);
+}
+
 /// Exercises the real read-WAV -> analyze -> rewrite-WAV sequence used by
 /// `stop()`, without needing `pw-record` or real mic hardware: synthesizes a
 /// WAV file on disk via `hound::WavWriter`, then calls `trim_and_check_file`

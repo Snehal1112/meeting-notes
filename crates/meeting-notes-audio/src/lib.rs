@@ -153,6 +153,13 @@ fn trim_and_check_file(path: &Path) -> Result<Option<QualityWarning>, RecordingE
         .samples::<i16>()
         .collect::<Result<Vec<i16>, hound::Error>>()?;
 
+    if samples.is_empty() {
+        return Err(RecordingError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("no audio was captured in {path:?} -- the recording contains zero samples"),
+        )));
+    }
+
     let (trimmed, warning) = analyze_and_trim(&samples, spec.sample_rate);
 
     let mut writer = hound::WavWriter::create(path, spec)?;
