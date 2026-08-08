@@ -2139,6 +2139,7 @@ dependencies = [
  "cairo-rs",
  "gtk",
  "hound",
+ "libc",
  "meeting-notes-audio",
  "meeting-notes-core",
  "meeting-notes-storage",

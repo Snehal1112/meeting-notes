@@ -33,6 +33,38 @@ vi.mock("@/lib/window", () => ({
   setClickThroughTracking: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Captures the "external-mic-activity" listener App registers so tests can
+// fire it directly, the same way RecorderWidget's onStateChange transitions
+// are driven via the stubbed go-recording/go-idle buttons below rather than
+// a real Tauri backend.
+let micActivityListener: (() => void) | undefined;
+const setFocus = vi.fn().mockResolvedValue(undefined);
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn((event: string, callback: () => void) => {
+    if (event === "external-mic-activity") {
+      micActivityListener = callback;
+    }
+    return Promise.resolve(() => {});
+  }),
+}));
+
+// App.tsx also drives the pill resize animation (animateResize /
+// currentWindowSize, see windowAnimation.ts) directly off this same module
+// during recording/processing transitions -- setSize/innerSize/scaleFactor
+// are stubbed here (mirroring windowAnimation.test.ts's mock shape) so that
+// path degrades to its own no-op/catch handling instead of throwing
+// "win.setSize is not a function" from inside an animation-frame callback,
+// which vitest reports as an unhandled error outside any test's try/catch.
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({
+    setFocus,
+    setSize: vi.fn().mockResolvedValue(undefined),
+    innerSize: vi.fn().mockResolvedValue({ toLogical: () => ({ width: 400, height: 300 }) }),
+    scaleFactor: vi.fn().mockResolvedValue(1),
+  }),
+}));
+
 // The real hook calls into Tauri's window APIs, which do not exist in
 // jsdom, and is not under test here.
 vi.mock("@/hooks/useAutoResizeWindow", () => ({ useAutoResizeWindow: vi.fn() }));
@@ -165,6 +197,8 @@ beforeEach(async () => {
   vi.mocked(setClickThroughTracking).mockReset().mockResolvedValue(undefined);
 
   recorderMountCount = 0;
+  micActivityListener = undefined;
+  setFocus.mockClear();
 });
 
 describe("App orphaned recording recovery", () => {
@@ -380,6 +414,39 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
 
     expect(await screen.findByTestId("recorder-mount-id")).toHaveTextContent(beforeId!);
     expect(recorderMountCount).toBe(1);
+  });
+});
+
+describe("App mic activity banner", () => {
+  // Regression test: a banner shown while Idle, then ignored in favor of
+  // starting a recording directly (rather than via the banner itself), must
+  // not silently resurface once that unrelated recording finishes and the
+  // widget returns to Idle -- see the finding this guards against in
+  // handleWidgetStateChange's comment in App.tsx.
+  it("clears an ignored banner once a recording starts, so it does not reappear back at idle", async () => {
+    render(<App />);
+    await screen.findByTestId("recorder");
+
+    micActivityListener?.();
+    expect(await screen.findByText(/mic is active/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "go-recording" }));
+    fireEvent.click(await screen.findByRole("button", { name: "go-processing" }));
+    fireEvent.click(await screen.findByRole("button", { name: "go-idle" }));
+
+    await screen.findByTestId("recorder");
+    expect(screen.queryByText(/mic is active/i)).not.toBeInTheDocument();
+  });
+
+  it("dismissing the banner still hides it (no regression from the start-recording clear)", async () => {
+    render(<App />);
+    await screen.findByTestId("recorder");
+
+    micActivityListener?.();
+    expect(await screen.findByText(/mic is active/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /dismiss/i }));
+    expect(screen.queryByText(/mic is active/i)).not.toBeInTheDocument();
   });
 });
 

@@ -43,6 +43,20 @@ function App() {
   const [resumeMeeting, setResumeMeeting] = useState<MeetingMeta | null>(null);
   const [widgetState, setWidgetState] = useState<WidgetState>("idle");
   const [showMicBanner, setShowMicBanner] = useState(false);
+  // Clears an ignored mic-activity banner the moment a recording actually
+  // starts (regardless of whether the user started it from the banner or
+  // via the normal Start Recording button). Without this, a banner shown
+  // while Idle -- then ignored in favor of clicking Start Recording
+  // directly -- would merely be hidden by the isPill guard during
+  // Recording/Processing, not cleared, and would reappear once the
+  // unrelated recording finished and the widget returned to Idle, falsely
+  // implying fresh mic activity.
+  const handleWidgetStateChange = useCallback((state: WidgetState) => {
+    setWidgetState(state);
+    if (state === "recording") {
+      setShowMicBanner(false);
+    }
+  }, []);
   // Bumped whenever MeetingHistory's own content changes (pagination,
   // search/filter results, a row refreshed after re-run/delete) -- folded
   // into remeasureKey below. MeetingHistory's wrapper div is flex-stretched
@@ -290,7 +304,7 @@ function App() {
       )}
       {(isPill || (!showConfigDialog && !showHistory)) && (
         <div className={isPill ? undefined : "flex-1 p-4 overflow-hidden"}>
-          <RecorderWidget resumeMeeting={resumeMeeting} onStateChange={setWidgetState} />
+          <RecorderWidget resumeMeeting={resumeMeeting} onStateChange={handleWidgetStateChange} />
         </div>
       )}
       </div>

@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SourceOutputEvent {
@@ -68,29 +67,50 @@ pub fn is_external_mic_activity(id: u32) -> bool {
 /// once per genuinely-new external mic-capture stream. `seen_ids` prevents
 /// re-firing for state-change events on a stream we've already reported —
 /// an ongoing Zoom call shouldn't spam the prompt repeatedly.
-pub fn watch_mic_activity(on_external_mic_activity: impl Fn() + Send + 'static) -> std::io::Result<()> {
+///
+/// `seen_ids` is a plain `HashSet` (not `Arc<Mutex<_>>`): this loop is the
+/// only thing that ever touches it, so there is nothing to share across
+/// threads. Using a real lock here would previously have been held across
+/// `is_external_mic_activity`'s blocking `pactl list source-outputs`
+/// subprocess call on every single-threaded iteration -- harmless today
+/// (uncontended lock), but a latent footgun if this function ever grew a
+/// second caller.
+///
+/// `on_child_spawned` is invoked once, immediately after the `pactl
+/// subscribe` child process is spawned, with its PID -- this is this
+/// function's only chance to hand that PID back to the caller, since the
+/// rest of this function is a blocking loop over the child's stdout. The
+/// caller uses the PID to SIGTERM the child on app shutdown, mirroring the
+/// `pw-record` shutdown convention in
+/// `crates/meeting-notes-audio/src/linux.rs` -- otherwise the child is
+/// reparented to init and keeps running as an orphan after this app exits,
+/// since exiting a parent process does not terminate its children on Linux.
+pub fn watch_mic_activity(
+    on_child_spawned: impl FnOnce(u32) + Send + 'static,
+    on_external_mic_activity: impl Fn() + Send + 'static,
+) -> std::io::Result<()> {
     let mut child = Command::new("pactl")
         .arg("subscribe")
         .stdout(Stdio::piped())
         .spawn()?;
 
+    on_child_spawned(child.id());
+
     let stdout = child.stdout.take().ok_or_else(|| {
         std::io::Error::new(std::io::ErrorKind::Other, "failed to capture pactl subscribe stdout")
     })?;
 
-    let seen_ids: Arc<Mutex<HashSet<u32>>> = Arc::new(Mutex::new(HashSet::new()));
+    let mut seen_ids: HashSet<u32> = HashSet::new();
 
     for line in BufReader::new(stdout).lines().filter_map(|l| l.ok()) {
         let Some(event) = parse_subscribe_line(&line) else { continue };
 
-        let mut seen = seen_ids.lock().unwrap();
-        if seen.contains(&event.id) {
+        if seen_ids.contains(&event.id) {
             continue;
         }
 
         if is_external_mic_activity(event.id) {
-            seen.insert(event.id);
-            drop(seen);
+            seen_ids.insert(event.id);
             on_external_mic_activity();
         }
     }

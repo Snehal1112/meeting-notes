@@ -29,6 +29,7 @@ meeting-notes-summary = { path = "../crates/meeting-notes-summary" }
 meeting-notes-storage = { path = "../crates/meeting-notes-storage" }
 tauri-plugin-dialog = "2.7.2"
 tauri-plugin-updater = "2"
+libc = "0.2.189"
 
 # Needed to auto-grant the WebKitGTK microphone permission request, which is
 # denied by default because wry's webkitgtk backend installs no handler.

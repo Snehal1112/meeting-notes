@@ -48,6 +48,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(RecordingState(Mutex::new(None)))
         .manage(commands::window_commands::ClickThroughState::default())
+        .manage(commands::mic_watcher_commands::MicWatcherPid::default())
         .setup(|app| {
             #[cfg(target_os = "linux")]
             allow_media_permissions(app.handle());
@@ -117,6 +118,17 @@ pub fn run() {
             commands::history_commands::delete_meeting,
             commands::history_commands::reveal_in_file_manager
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // The `pactl subscribe` child spawned by start_mic_watcher has
+            // no other shutdown hook -- Linux reparents (rather than kills)
+            // a process's children when it exits, so without this it would
+            // leak as an orphan on every app exit. Mirrors the pw-record
+            // SIGTERM convention in crates/meeting-notes-audio/src/linux.rs.
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                let pid_state = app_handle.state::<commands::mic_watcher_commands::MicWatcherPid>();
+                commands::mic_watcher_commands::stop_mic_watcher(&pid_state);
+            }
+        });
 }
