@@ -394,6 +394,31 @@ fn recover_interrupted_recording_is_a_noop_when_final_output_already_exists() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The retry-bypasses-validation bug: `finalize_output` renames the capture
+/// into `final_output_path` BEFORE `trim_and_check_file` validates it, so a
+/// zero-sample recording still leaves an empty (header-only) file sitting at
+/// `final_output_path` even though finalize as a whole failed. Recovery must
+/// not treat mere existence of that file as proof of a successful finalize --
+/// it must re-check for real audio and keep reporting the same clear error on
+/// every retry, not silently return `Ok(None)` and hand whisper.cpp an empty
+/// file again.
+#[test]
+fn recover_interrupted_recording_errors_when_final_output_exists_but_has_zero_samples() {
+    let dir = std::env::temp_dir().join(format!("recover-empty-final-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let final_path = dir.join("audio.wav");
+    write_test_wav(&final_path, &[]);
+
+    let result = recover_interrupted_recording(&final_path);
+    assert!(
+        result.is_err(),
+        "expected an error when final_output_path exists but has zero samples, got {:?}",
+        result
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The actual interrupted-recording bug: `stop()` was never called, so only
 /// the intermediate `<id>.mic.wav` exists (no system audio in this case).
 /// Recovery must finalize it into `final_output_path` exactly like `stop()`

@@ -142,6 +142,17 @@ fn finalize_output(
     Ok(warning)
 }
 
+/// The clear "zero samples captured" error shared by `trim_and_check_file`
+/// (first-time finalize) and `recover_interrupted_recording` (retry of a
+/// meeting whose finalize already left an empty file at `final_output_path`),
+/// so both paths report the exact same message instead of drifting apart.
+fn zero_samples_error(path: &Path) -> RecordingError {
+    RecordingError::Io(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        format!("no audio was captured in {path:?} -- the recording contains zero samples"),
+    ))
+}
+
 /// Reads the WAV file at `path`, trims the leading DC-offset settling window,
 /// checks recording quality, and writes the trimmed samples back to `path`.
 /// Returns the quality warning, if any. Factored out so it can be unit tested
@@ -154,10 +165,7 @@ fn trim_and_check_file(path: &Path) -> Result<Option<QualityWarning>, RecordingE
         .collect::<Result<Vec<i16>, hound::Error>>()?;
 
     if samples.is_empty() {
-        return Err(RecordingError::Io(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!("no audio was captured in {path:?} -- the recording contains zero samples"),
-        )));
+        return Err(zero_samples_error(path));
     }
 
     let (trimmed, warning) = analyze_and_trim(&samples, spec.sample_rate);
@@ -210,9 +218,20 @@ fn analyze_and_trim(samples: &[i16], sample_rate: u32) -> (Vec<i16>, Option<Qual
 /// Recovers a recording that was interrupted before `stop()` ever ran (e.g.
 /// the app crashed or was killed mid-recording), so `finalize_output` never
 /// got a chance to assemble `final_output_path` from the intermediate
-/// capture file(s). A no-op if `final_output_path` already exists (the
-/// recording completed normally, nothing to recover). Otherwise looks for
-/// the same `<stem>.mic.wav` / `<stem>.system.wav` intermediates that
+/// capture file(s). A no-op if `final_output_path` already exists AND holds
+/// real audio (the recording completed normally, nothing to recover).
+///
+/// If `final_output_path` exists but has zero samples, that is not a
+/// successfully finalized recording -- it is the empty file `finalize_output`
+/// renamed into place right before `trim_and_check_file` rejected it (see
+/// that function). Without re-checking here, retrying such a meeting would
+/// hit this early-exists guard, silently return `Ok(None)`, and hand the same
+/// empty file to whisper.cpp again, reproducing the original cryptic crash.
+/// So the existing file's sample count is re-validated every time, and the
+/// same clear "no audio was captured" error is returned again if it's empty.
+///
+/// Otherwise (no `final_output_path` at all) looks for the same
+/// `<stem>.mic.wav` / `<stem>.system.wav` intermediates that
 /// `RecordingHandle::start` creates (see `linux.rs`/`macos.rs`) and finalizes
 /// whichever are present. Errors if neither the final output nor the mic
 /// intermediate exists -- genuine data loss, since nothing was ever captured.
@@ -220,6 +239,12 @@ pub fn recover_interrupted_recording(
     final_output_path: &Path,
 ) -> Result<Option<QualityWarning>, RecordingError> {
     if final_output_path.exists() {
+        // Cheap re-validation: just the frame count from the header, not a
+        // full sample read like trim_and_check_file's rewrite path needs.
+        let reader = hound::WavReader::open(final_output_path)?;
+        if reader.duration() == 0 {
+            return Err(zero_samples_error(final_output_path));
+        }
         return Ok(None);
     }
 
