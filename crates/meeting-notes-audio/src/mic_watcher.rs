@@ -28,6 +28,18 @@ pub fn is_mic_capture(details: &str) -> bool {
         && !details.contains("stream.capture.sink = \"true\"")
 }
 
+/// True if this source-output block is attached to a real client process,
+/// as opposed to internal PipeWire graph plumbing (filter-chain nodes such
+/// as a DC-block or echo-cancellation filter, which PipeWire creates for
+/// itself). Plumbing nodes still report `media.class = "Stream/Input/Audio"`
+/// like a genuine app capture would, but have no client process attached --
+/// pactl reports that as a literal `Client: n/a`, whereas every real
+/// application stream (Zoom, a browser tab, `parec`, `pw-record`) reports a
+/// real numeric client id, e.g. `Client: 369`.
+pub fn has_real_client(details: &str) -> bool {
+    !details.contains("Client: n/a")
+}
+
 /// Extracts the source output block for a given ID from pactl text output.
 /// Returns None if the ID is not found. Anchors the marker with a newline
 /// to avoid ID-prefix collisions (e.g., looking up #4 must not match inside #42).
@@ -82,7 +94,9 @@ fn list_current_source_output_ids() -> Vec<u32> {
 /// recording or an unrelated monitor-source tap.
 pub fn is_external_mic_activity(id: u32) -> bool {
     match fetch_source_output_details(id) {
-        Some(details) => is_mic_capture(&details) && !is_own_recording(&details),
+        Some(details) => {
+            is_mic_capture(&details) && !is_own_recording(&details) && has_real_client(&details)
+        }
         None => false,
     }
 }

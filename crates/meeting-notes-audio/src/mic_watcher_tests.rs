@@ -71,6 +71,50 @@ fn is_mic_capture_false_for_monitor_source_tap() {
     assert!(!is_mic_capture(details));
 }
 
+// The fixtures below are full `Source Output #<id>` blocks (header +
+// Properties:) captured live from `pactl list source-outputs` on this
+// machine -- see the finding this fixes: PipeWire's own graph plumbing
+// (filter-chain nodes it creates for itself, e.g. a DC-block filter on the
+// mic) also reports `media.class = "Stream/Input/Audio"` with no
+// `stream.capture.sink` property, so it passed both `is_mic_capture` and
+// `is_own_recording` and was wrongly treated as a real app using the mic.
+// Captured via:
+//   pactl list source-outputs                              # dcblock plumbing node, already present at idle
+//   parec --raw -d "$(pactl get-default-source)" >/dev/null &  # real external client
+//   pactl list source-outputs                              # while parec is running
+
+#[test]
+fn has_real_client_true_for_real_app_stream() {
+    // Real `parec -d $(pactl get-default-source)` capture (a genuine
+    // external app stand-in). `Client:` carries a real numeric id.
+    let details = "\tClient: 464\n\tSource: 35\n\tProperties:\n\t\tclient.api = \"pipewire-pulse\"\n\t\tapplication.name = \"parec\"\n\t\tapplication.process.binary = \"pacat\"\n\t\tmedia.class = \"Stream/Input/Audio\"";
+    assert!(has_real_client(details));
+}
+
+#[test]
+fn has_real_client_false_for_client_less_plumbing_node() {
+    // Real PipeWire-internal filter-chain node (`capture.dcblock_dmic`, the
+    // DC-block filter on this machine's digital mic). Has no attached
+    // client process -- pactl reports `Client: n/a` -- yet still reports
+    // `media.class = "Stream/Input/Audio"` and no `stream.capture.sink`,
+    // so without this check it would pass `is_mic_capture` as a false
+    // positive on every launch.
+    let details = "\tClient: n/a\n\tSource: 64\n\tProperties:\n\t\tnode.name = \"capture.dcblock_dmic\"\n\t\tdevice.description = \"Digital Microphone (DC-blocked)\"\n\t\tnode.virtual = \"true\"\n\t\tmedia.class = \"Stream/Input/Audio\"";
+    assert!(!has_real_client(details));
+}
+
+#[test]
+fn is_external_mic_activity_style_combined_check_excludes_plumbing_node() {
+    // Regression test mirroring the exact combination `is_external_mic_activity`
+    // performs, using the real dcblock fixture: it must fail the combined
+    // check even though it passes `is_mic_capture` and `is_own_recording` on
+    // their own -- only `has_real_client` catches it.
+    let details = "\tClient: n/a\n\tSource: 64\n\tProperties:\n\t\tnode.name = \"capture.dcblock_dmic\"\n\t\tdevice.description = \"Digital Microphone (DC-blocked)\"\n\t\tnode.virtual = \"true\"\n\t\tmedia.class = \"Stream/Input/Audio\"";
+    assert!(is_mic_capture(details));
+    assert!(!is_own_recording(details));
+    assert!(!has_real_client(details));
+}
+
 #[test]
 fn extract_source_output_block_anchors_id_to_avoid_prefix_collision() {
     // Regression test for the ID-prefix collision bug: looking up #4 must not
