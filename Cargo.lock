@@ -2155,6 +2155,7 @@ dependencies = [
 name = "meeting-notes"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "cairo-rs",
  "gtk",
  "hound",
@@ -2171,6 +2172,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
  "tauri-plugin-updater",
+ "tokio",
  "webkit2gtk",
 ]
 

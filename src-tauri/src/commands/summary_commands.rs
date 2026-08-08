@@ -2,7 +2,7 @@ use crate::commands::resolved_base_dir;
 use meeting_notes_core::config::resolve_config;
 use meeting_notes_core::meeting::{MeetingMeta, MeetingStatus};
 use meeting_notes_core::notes_markdown::render_summary_markdown;
-use meeting_notes_core::summary::{SummaryProvider, SummaryResult};
+use meeting_notes_core::summary::{SummaryProgress, SummaryProvider, SummaryResult};
 use meeting_notes_storage::{load_index, update_meeting};
 use meeting_notes_summary::{build_provider, build_provider_for_kind, notes::generate_notes, ProviderKind};
 use std::path::Path;
@@ -36,7 +36,11 @@ pub async fn summarize_meeting(
         },
     };
 
-    let (result, updated) = run_summarize_or_mark_failed(&base, meeting, provider).await?;
+    let app_for_progress = app.clone();
+    let (result, updated) = run_summarize_or_mark_failed(&base, meeting, provider, move |progress| {
+        let _ = app_for_progress.emit("summary-progress", &progress);
+    })
+    .await?;
     app.emit("summary-complete", &updated)
         .map_err(|e| e.to_string())?;
     Ok(result)
@@ -50,8 +54,9 @@ async fn run_summarize_or_mark_failed(
     base: &Path,
     meeting: MeetingMeta,
     provider: Box<dyn SummaryProvider + Send + Sync>,
+    on_progress: impl Fn(SummaryProgress) + Send + Sync,
 ) -> Result<(SummaryResult, MeetingMeta), String> {
-    match run_summarize(base, meeting.clone(), provider).await {
+    match run_summarize(base, meeting.clone(), provider, on_progress).await {
         Ok(ok) => Ok(ok),
         Err(e) => {
             // Don't leave the meeting stuck at "Summarizing" forever if the
@@ -73,12 +78,13 @@ async fn run_summarize(
     base: &Path,
     meeting: MeetingMeta,
     provider: Box<dyn SummaryProvider + Send + Sync>,
+    on_progress: impl Fn(SummaryProgress) + Send + Sync,
 ) -> Result<(SummaryResult, MeetingMeta), String> {
     let meeting_dir = meeting.dir_path(base);
     let transcript = std::fs::read_to_string(meeting_dir.join("transcript.txt"))
         .map_err(|e| format!("could not read transcript: {e}"))?;
 
-    let result = generate_notes(provider.as_ref(), meeting.meeting_type, &transcript).await?;
+    let result = generate_notes(provider.as_ref(), meeting.meeting_type, &transcript, on_progress).await?;
 
     write_summary_files(&meeting_dir, &result, &meeting)?;
 
@@ -306,6 +312,7 @@ mod tests {
             &base,
             meeting.clone(),
             Box::new(ClaudeProvider::new("dummy-api-key".to_string())),
+            |_progress| {},
         ));
         assert!(result.is_err());
 
@@ -315,6 +322,50 @@ mod tests {
             .find(|m| m.id == meeting.id)
             .expect("meeting present in index");
         assert_eq!(persisted.status, MeetingStatus::Failed);
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[tokio::test]
+    async fn run_summarize_calls_on_progress_for_each_pass() {
+        use meeting_notes_core::summary::{SummaryPass, SummaryProgress};
+        use std::sync::Mutex;
+
+        struct StubProvider;
+        #[async_trait::async_trait]
+        impl SummaryProvider for StubProvider {
+            fn input_budget_words(&self) -> usize {
+                1000
+            }
+            async fn complete_json(&self, _prompt: &str) -> Result<String, String> {
+                Ok(r#"{"meeting_type":"Sync","attendees":[],"referenced_people":[],"summary":"s",
+"topics":[],"decisions":[],"action_items":[],"open_questions":[]}"#
+                    .to_string())
+            }
+        }
+
+        let base = temp_base("run-summarize-progress");
+        let meeting = create_meeting(&base, "Test meeting", MeetingType::AutoDetect).expect("create meeting");
+        append_to_index(&base, &meeting).expect("append to index");
+        std::fs::write(meeting.dir_path(&base).join("transcript.txt"), "hello there")
+            .expect("write transcript");
+
+        let progress: Mutex<Vec<SummaryProgress>> = Mutex::new(Vec::new());
+        let result = run_summarize(&base, meeting, Box::new(StubProvider), |p| {
+            progress.lock().unwrap().push(p);
+        })
+        .await;
+
+        assert!(result.is_ok(), "expected success, got {result:?}");
+        let recorded = progress.into_inner().unwrap();
+        assert_eq!(
+            recorded,
+            vec![
+                SummaryProgress { pass: SummaryPass::NotesAndSummary, chunk_index: 0, chunk_total: 1 },
+                SummaryProgress { pass: SummaryPass::ActionItems, chunk_index: 0, chunk_total: 1 },
+                SummaryProgress { pass: SummaryPass::OpenQuestions, chunk_index: 0, chunk_total: 1 },
+            ]
+        );
 
         std::fs::remove_dir_all(&base).ok();
     }
