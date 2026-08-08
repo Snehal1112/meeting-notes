@@ -88,6 +88,8 @@ pub fn run() {
                     }
                 });
             }
+
+            commands::mic_watcher_commands::start_mic_watcher(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

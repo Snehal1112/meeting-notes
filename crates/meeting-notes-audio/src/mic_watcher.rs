@@ -1,4 +1,7 @@
-use std::process::Command;
+use std::collections::HashSet;
+use std::io::{BufRead, BufReader};
+use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SourceOutputEvent {
@@ -59,6 +62,40 @@ pub fn is_external_mic_activity(id: u32) -> bool {
         Some(details) => is_mic_capture(&details) && !is_own_recording(&details),
         None => false,
     }
+}
+
+/// Runs `pactl subscribe` indefinitely, calling `on_external_mic_activity`
+/// once per genuinely-new external mic-capture stream. `seen_ids` prevents
+/// re-firing for state-change events on a stream we've already reported —
+/// an ongoing Zoom call shouldn't spam the prompt repeatedly.
+pub fn watch_mic_activity(on_external_mic_activity: impl Fn() + Send + 'static) -> std::io::Result<()> {
+    let mut child = Command::new("pactl")
+        .arg("subscribe")
+        .stdout(Stdio::piped())
+        .spawn()?;
+
+    let stdout = child.stdout.take().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::Other, "failed to capture pactl subscribe stdout")
+    })?;
+
+    let seen_ids: Arc<Mutex<HashSet<u32>>> = Arc::new(Mutex::new(HashSet::new()));
+
+    for line in BufReader::new(stdout).lines().filter_map(|l| l.ok()) {
+        let Some(event) = parse_subscribe_line(&line) else { continue };
+
+        let mut seen = seen_ids.lock().unwrap();
+        if seen.contains(&event.id) {
+            continue;
+        }
+
+        if is_external_mic_activity(event.id) {
+            seen.insert(event.id);
+            drop(seen);
+            on_external_mic_activity();
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 pub mod config_commands;
 pub mod data_dir_commands;
 pub mod history_commands;
+pub mod mic_watcher_commands;
 pub mod recording_commands;
 pub mod storage_commands;
 pub mod summary_commands;

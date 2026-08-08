@@ -80,13 +80,16 @@ but aren't verified.
    If `libwebkit2gtk-4.1-dev` isn't available on your Ubuntu version, check
    `apt-cache search libwebkit2gtk` for the version it ships (e.g. `4.0` on
    older releases) and substitute it.
-5. **PipeWire audio tooling** — `pw-record` (audio capture) and, ideally,
-   `pactl` from `pulseaudio-utils` (device listing/selection):
+5. **PipeWire audio tooling** — `pw-record` (audio capture) and `pactl` from
+   `pulseaudio-utils` (device listing/selection):
    ```bash
    sudo apt install -y pipewire-utils pulseaudio-utils
    ```
-   If `pactl` is unavailable, native tools like `wpctl status` / `pw-cli` work
-   as a substitute for inspecting sources/sinks.
+   `pactl` is optional for basic recording — native tools like `wpctl status` /
+   `pw-cli` work as a substitute for inspecting sources/sinks — but it is
+   **required** for the mic-activity-detection feature (the banner that
+   surfaces the widget when another app starts using the mic). Without
+   `pactl`, that feature silently does nothing.
 6. **whisper.cpp**, built from source, plus a downloaded model:
    ```bash
    git clone --depth 1 https://github.com/ggerganov/whisper.cpp

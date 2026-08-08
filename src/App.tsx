@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Toaster } from "sonner";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { TitleBar } from "@/components/TitleBar";
 import { ConfigDialog } from "@/components/ConfigDialog";
 import { RecorderWidget, type WidgetState } from "@/components/RecorderWidget";
 import { ResumePrompt } from "@/components/ResumePrompt";
 import { MeetingHistory } from "@/components/MeetingHistory";
+import { MicActivityBanner } from "@/components/MicActivityBanner";
 import { configNeedsSetup, saveConfig, type AppConfig } from "@/lib/config";
 import { getOrphanedMeetings, type MeetingMeta } from "@/lib/storage";
 import { animateResize, currentWindowSize } from "@/lib/windowAnimation";
@@ -39,6 +42,7 @@ function App() {
   const [orphaned, setOrphaned] = useState<MeetingMeta[]>([]);
   const [resumeMeeting, setResumeMeeting] = useState<MeetingMeta | null>(null);
   const [widgetState, setWidgetState] = useState<WidgetState>("idle");
+  const [showMicBanner, setShowMicBanner] = useState(false);
   // Bumped whenever MeetingHistory's own content changes (pagination,
   // search/filter results, a row refreshed after re-run/delete) -- folded
   // into remeasureKey below. MeetingHistory's wrapper div is flex-stretched
@@ -147,6 +151,39 @@ function App() {
       .catch((err) => console.error("Could not check for interrupted recordings:", err));
   }, []);
 
+  // Surfaces the widget and offers to start recording the moment another
+  // app (Zoom, a browser tab) opens a mic-capture stream, so the user
+  // doesn't have to remember to switch over and click Start Recording
+  // themselves. Mirrors onTranscriptionComplete's cancelled-guard pattern
+  // (see RecorderWidget.tsx) to survive React StrictMode's double-invoke
+  // without double-registering the listener.
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      const stopListening = await listen("external-mic-activity", () => {
+        if (cancelled) return;
+        if (widgetState === "idle") {
+          getCurrentWindow().setFocus().catch((err) =>
+            console.error("Could not focus window for mic activity:", err)
+          );
+          setShowMicBanner(true);
+        }
+        // Deliberately no-op if already recording/processing -- the user is
+        // already doing the thing this banner would have suggested.
+      });
+      if (cancelled) {
+        stopListening();
+        return;
+      }
+      unlisten = stopListening;
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [widgetState]);
+
   const handleResume = (id: string) => {
     const meeting = orphaned.find((m) => m.id === id);
     if (!meeting) return;
@@ -238,6 +275,9 @@ function App() {
           onResume={handleResume}
           onDismiss={(id) => setOrphaned((prev) => prev.filter((m) => m.id !== id))}
         />
+      )}
+      {!isPill && !showConfigDialog && !showHistory && showMicBanner && (
+        <MicActivityBanner onDismiss={() => setShowMicBanner(false)} />
       )}
       {!isPill && !showConfigDialog && showHistory && (
         <div className="flex-1 p-4 overflow-hidden">
