@@ -3,6 +3,8 @@ pub mod commands;
 use commands::recording_commands::RecordingState;
 use std::sync::Mutex;
 use tauri::Manager;
+use tauri::tray::TrayIconBuilder;
+use tauri::image::Image;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -91,6 +93,20 @@ pub fn run() {
             }
 
             commands::mic_watcher_commands::start_mic_watcher(app.handle());
+
+            let icon_bytes = include_bytes!("../icons/32x32.png");
+            let img = image::load_from_memory(icon_bytes)
+                .expect("failed to load tray icon")
+                .to_rgba8();
+            let width = img.width();
+            let height = img.height();
+            let tray_icon = Image::new_owned(img.into_raw(), width, height);
+
+            TrayIconBuilder::new()
+                .icon(tray_icon)
+                .tooltip("Meeting Notes")
+                .build(app)?;
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
