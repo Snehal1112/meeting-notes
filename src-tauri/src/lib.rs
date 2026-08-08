@@ -105,7 +105,15 @@ pub fn run() {
             let tray_menu =
                 Menu::with_items(app, &[&show_item, &new_recording_item, &quit_item])?;
 
-            TrayIconBuilder::new()
+            // The tray is a convenience feature, not a hard dependency (see
+            // design spec) -- on Linux, `tray-icon`/`libappindicator-sys`
+            // dlopen's libayatana-appindicator3/libappindicator3 at runtime
+            // and has no ELF NEEDED entry for packaging tools to catch, so a
+            // missing system library only fails here, not at link/package
+            // time. Log and continue instead of `?`-propagating into
+            // `.expect("error while building tauri application")`, which
+            // would otherwise kill the entire app on tray-only failures.
+            if let Err(err) = TrayIconBuilder::new()
                 .icon(tray_icon)
                 .tooltip("Meeting Notes")
                 .menu(&tray_menu)
@@ -126,7 +134,10 @@ pub fn run() {
                     "quit" => app.exit(0),
                     _ => {}
                 })
-                .build(app)?;
+                .build(app)
+            {
+                eprintln!("failed to create system tray icon: {err}");
+            }
 
             Ok(())
         })
@@ -166,6 +177,20 @@ pub fn run() {
             if let tauri::RunEvent::ExitRequested { .. } = event {
                 let pid_state = app_handle.state::<commands::mic_watcher_commands::MicWatcherPid>();
                 commands::mic_watcher_commands::stop_mic_watcher(&pid_state);
+
+                // Tray "Quit" calls `app.exit(0)`, which exits via
+                // `process::exit()` without ever dropping managed state --
+                // so an in-flight recording's `RecordingHandle::drop` (which
+                // would otherwise SIGTERM the mic/system-audio child
+                // processes, see crates/meeting-notes-audio/src/linux.rs)
+                // never runs. Reuse the same `stop_recording` command the
+                // frontend calls to stop normally, so the child processes
+                // are cleaned up the established way. No-op ("no active
+                // recording" error, ignored) for the common case of exiting
+                // without a recording in progress.
+                let recording_state =
+                    app_handle.state::<commands::recording_commands::RecordingState>();
+                let _ = commands::recording_commands::stop_recording(recording_state);
             }
         });
 }
