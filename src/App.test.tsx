@@ -438,6 +438,27 @@ describe("App mic activity banner", () => {
     expect(screen.queryByText(/mic is active/i)).not.toBeInTheDocument();
   });
 
+  // Regression test: the resume-an-interrupted-recording and retry-a-failed-
+  // meeting paths both jump straight from Idle to "processing" (see
+  // RecorderWidget.tsx:101-105's resumeMeeting effect, and App.tsx's
+  // handleResume/handleRetryMeeting), never passing through "recording".
+  // A banner shown while Idle -- then ignored in favor of Resume/Retry --
+  // must not silently resurface once that processing run finishes and the
+  // widget returns to Idle.
+  it("clears an ignored banner once the widget goes straight to processing (resume/retry path), so it does not reappear back at idle", async () => {
+    render(<App />);
+    await screen.findByTestId("recorder");
+
+    micActivityListener?.();
+    expect(await screen.findByText(/mic is active/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "go-processing" }));
+    fireEvent.click(await screen.findByRole("button", { name: "go-idle" }));
+
+    await screen.findByTestId("recorder");
+    expect(screen.queryByText(/mic is active/i)).not.toBeInTheDocument();
+  });
+
   it("dismissing the banner still hides it (no regression from the start-recording clear)", async () => {
     render(<App />);
     await screen.findByTestId("recorder");

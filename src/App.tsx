@@ -43,17 +43,21 @@ function App() {
   const [resumeMeeting, setResumeMeeting] = useState<MeetingMeta | null>(null);
   const [widgetState, setWidgetState] = useState<WidgetState>("idle");
   const [showMicBanner, setShowMicBanner] = useState(false);
-  // Clears an ignored mic-activity banner the moment a recording actually
-  // starts (regardless of whether the user started it from the banner or
-  // via the normal Start Recording button). Without this, a banner shown
-  // while Idle -- then ignored in favor of clicking Start Recording
-  // directly -- would merely be hidden by the isPill guard during
-  // Recording/Processing, not cleared, and would reappear once the
-  // unrelated recording finished and the widget returned to Idle, falsely
-  // implying fresh mic activity.
+  // Clears an ignored mic-activity banner the moment the widget leaves Idle
+  // for any reason (regardless of whether the user started a recording
+  // directly, resumed an interrupted one, or retried a failed one from
+  // History). WidgetState only has three values -- "idle" | "recording" |
+  // "processing" (see RecorderWidget.tsx) -- and both the resume path
+  // (RecorderWidget's resumeMeeting effect) and the retry path
+  // (handleRetryMeeting below) jump straight from idle to "processing",
+  // never passing through "recording". Clearing on "recording" alone missed
+  // those: the banner would merely be hidden by the isPill guard during
+  // Processing, not cleared, and would reappear once that unrelated
+  // resume/retry finished and the widget returned to Idle, falsely implying
+  // fresh mic activity.
   const handleWidgetStateChange = useCallback((state: WidgetState) => {
     setWidgetState(state);
-    if (state === "recording") {
+    if (state !== "idle") {
       setShowMicBanner(false);
     }
   }, []);
