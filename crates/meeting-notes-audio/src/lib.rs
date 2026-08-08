@@ -87,13 +87,8 @@ mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::RecordingHandle;
 
-#[cfg(target_os = "macos")]
-mod macos;
-#[cfg(target_os = "macos")]
-pub use macos::RecordingHandle;
-
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-compile_error!("meeting-notes-audio currently supports Linux and macOS only");
+#[cfg(not(target_os = "linux"))]
+compile_error!("meeting-notes-audio currently supports Linux only");
 
 pub mod mic_watcher;
 
@@ -232,7 +227,7 @@ fn analyze_and_trim(samples: &[i16], sample_rate: u32) -> (Vec<i16>, Option<Qual
 ///
 /// Otherwise (no `final_output_path` at all) looks for the same
 /// `<stem>.mic.wav` / `<stem>.system.wav` intermediates that
-/// `RecordingHandle::start` creates (see `linux.rs`/`macos.rs`) and finalizes
+/// `RecordingHandle::start` creates (see `linux.rs`) and finalizes
 /// whichever are present. Errors if neither the final output nor the mic
 /// intermediate exists -- genuine data loss, since nothing was ever captured.
 pub fn recover_interrupted_recording(

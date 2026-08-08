@@ -4,12 +4,15 @@ import { animateResize, currentWindowSize } from "@/lib/windowAnimation";
 
 // Resizes the OS window to match the content's natural height, so panels
 // taller than the widget's default 300px (e.g. the config panel) grow the
-// window instead of scrolling internally -- up to a per-monitor cap. Beyond
-// that cap the window stops growing and the internal overflow-y-auto panels
-// in RecorderWidget.tsx's Done-state Tabs content take over instead. Without
-// a cap, a long meeting summary/transcript could grow the window taller
-// than the screen, which both hides content with no way to reach it and can
-// push the title bar (the only drag handle) off-screen, making the window
+// window instead of scrolling internally -- up to a per-monitor cap (or a
+// tighter caller-supplied `maxHeightOverride`, e.g. Meeting History's own
+// 600px cap in App.tsx). Beyond that cap the window simply stops growing;
+// none of the current panels wire up an internal scroll fallback of their
+// own, so content past the cap is clipped by App.tsx's `overflow-hidden`
+// wrapper around each panel. Without a cap at all, unusually tall content
+// (e.g. a long meeting history list) could grow the window taller than the
+// screen, which both hides content with no way to reach it and can push
+// the title bar (the only drag handle) off-screen, making the window
 // undraggable to another monitor.
 const HEIGHT_CAP_FRACTION = 0.85;
 const FALLBACK_HEIGHT_CAP = 700; // logical px, used when currentMonitor() returns null
@@ -33,8 +36,9 @@ export function useAutoResizeWindow(
   // on its own -- e.g. App.tsx passes its widgetState. Once the root is
   // pinned to an explicit height (see measure() below), its flex-1
   // children stretch to FILL that space rather than shrinking to content,
-  // so swapping in much shorter content (Done -> Idle via "New Recording")
-  // never changes any observed element's own box size. Including this
+  // so swapping in much shorter content (e.g. closing ConfigDialog or
+  // History back to the plain Idle screen) never changes any observed
+  // element's own box size. Including this
   // value in the effect's dependency list tears down and rebuilds the
   // observer whenever it changes, and a freshly-observed element always
   // gets measured once even with no size change -- exactly the signal
@@ -53,7 +57,7 @@ export function useAutoResizeWindow(
 
     // measure() awaits real Tauri IPC round-trips (currentMonitor(),
     // currentWindowSize()), so it can still be suspended when this effect run
-    // is torn down -- e.g. the widget leaves Idle/Done for the
+    // is torn down -- e.g. the widget leaves Idle for the
     // Recording/Processing pill mid-measure. `cancelled` stops a torn-down
     // run from writing a stale size after the fact; `latestRun` stops an
     // older in-flight measure() from clobbering a newer one if the
@@ -77,15 +81,15 @@ export function useAutoResizeWindow(
       // Read scrollHeight with any previously-applied pin lifted first,
       // then restore it immediately -- synchronously, so no frame is ever
       // painted unpinned. Reading it WHILE pinned corrupts the signal:
-      // once a height is applied to `el`, the flex/overflow chain below it
-      // (App.tsx's wrapper -> RecorderWidget's h-full Done root -> Tabs'
-      // flex-1 overflow-hidden -> each TabsContent's overflow-y-auto
-      // flex-1) absorbs all of the content's overflow into its own
-      // internal scroll, so `el`'s children report their own *allotted*
-      // box size back as `scrollHeight`, not the content's true size.
-      // Reading that shrunken number back as `total` here would ratchet
-      // the window smaller by (2x the root's border width) on every single
-      // measurement, forever, instead of ever settling at the cap.
+      // once a height is applied to `el`, the overflow-hidden wrapper
+      // around it (App.tsx's `flex-1 overflow-hidden` div, around either
+      // panel's own `h-full` root -- see MeetingHistory.tsx/
+      // RecorderWidget.tsx) clips all of the content's overflow, so `el`'s
+      // children report their own *allotted* box size back as
+      // `scrollHeight`, not the content's true size. Reading that shrunken
+      // number back as `total` here would ratchet the window smaller by
+      // (2x the root's border width) on every single measurement, forever,
+      // instead of ever settling at the cap.
       const previousHeight = el.style.height;
       el.style.height = "";
       const total = Array.from(el.children).reduce(
@@ -133,10 +137,12 @@ export function useAutoResizeWindow(
       // unit (100vh/h-screen), and deliberately applied only AFTER `total`
       // was already read above with the pin lifted, so this write can never
       // feed back into the next measurement's own reading of `total`. This
-      // is what lets RecorderWidget.tsx's already-present `overflow-y-auto`
-      // Tabs content actually activate once content exceeds the cap,
-      // instead of silently overflowing past the window's visible edge. Set
-      // synchronously here (not animated in JS) -- App.tsx gives the root
+      // keeps `el`'s own box height in lockstep with the OS window size
+      // that was just requested, so content past the cap stays clipped by
+      // App.tsx's `overflow-hidden` wrapper instead of silently
+      // overflowing past the window's visible edge while the resize
+      // animation is still catching up. Set synchronously here (not
+      // animated in JS) -- App.tsx gives the root
       // element a matching CSS transition so this value change animates in
       // lockstep with the JS-driven window resize above.
       el.style.height = `${height}px`;
@@ -152,9 +158,9 @@ export function useAutoResizeWindow(
       // rootRef's div is reused (not remounted) across pill <-> full-chrome
       // transitions in App.tsx -- the ref/className on that element merely
       // toggle via a ternary. Without this reset, a height forced by a
-      // capped Done state would linger on the same DOM node and fight the
-      // pill's own `h-screen w-screen` sizing the next time this hook is
-      // re-enabled.
+      // capped Idle-state panel (e.g. a long Meeting History list) would
+      // linger on the same DOM node and fight the pill's own
+      // `h-screen w-screen` sizing the next time this hook is re-enabled.
       el.style.height = "";
     };
   }, [ref, width, minHeight, enabled, remeasureKey, maxHeightOverride]);

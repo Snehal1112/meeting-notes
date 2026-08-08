@@ -2180,7 +2180,6 @@ version = "0.1.0"
 dependencies = [
  "hound",
  "libc",
- "meeting-notes-core",
 ]
 
 [[package]]

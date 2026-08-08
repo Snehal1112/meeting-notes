@@ -6,4 +6,3 @@ edition = "2024"
 [dependencies]
 hound = "3.5.1"
 libc = "0.2.189"
-meeting-notes-core = { path = "../meeting-notes-core" }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -38,6 +38,12 @@ interface MeetingHistoryProps {
 
 const PAGE_SIZE = 5;
 const UNDO_WINDOW_MS = 6000;
+// How long to coalesce rapid-fire content changes (e.g. fast typing in the
+// search box) before notifying the parent -- see the onContentChange effect
+// below. Short enough that the window resize still feels immediate, long
+// enough that a fast typist's keystrokes collapse into a single call
+// instead of one Tauri IPC round-trip per keystroke.
+const CONTENT_CHANGE_DEBOUNCE_MS = 200;
 
 // Returns whether `createdAt` falls within the local-time window named by
 // `dateFilter`, evaluated against the current time at call time.
@@ -83,6 +89,8 @@ export function MeetingHistory({ onBack, onRetryMeeting, onContentChange }: Meet
   // call, and firing two concurrently races to overwrite the same
   // summary_result.json.
   const [rerunningIds, setRerunningIds] = useState<Set<string>>(new Set());
+  // Debounce timer for the onContentChange effect below -- see its comment.
+  const contentChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadHistory = () =>
     getMeetingHistory()
@@ -96,9 +104,23 @@ export function MeetingHistory({ onBack, onRetryMeeting, onContentChange }: Meet
   // Every piece of state that can change this panel's rendered height:
   // the loaded entries themselves (initial load, delete, a re-run's
   // refreshed snippet), which page is showing, and the search/filter
-  // criteria that change how many rows match.
+  // criteria that change how many rows match. Debounced (see
+  // CONTENT_CHANGE_DEBOUNCE_MS) because `search` changes on every
+  // keystroke -- without this, fast typing in the search box would fire
+  // onContentChange's window-resize-measurement + Tauri IPC call once per
+  // keystroke instead of once after typing settles.
   useEffect(() => {
-    onContentChange?.();
+    if (contentChangeTimerRef.current) {
+      clearTimeout(contentChangeTimerRef.current);
+    }
+    contentChangeTimerRef.current = setTimeout(() => {
+      onContentChange?.();
+    }, CONTENT_CHANGE_DEBOUNCE_MS);
+    return () => {
+      if (contentChangeTimerRef.current) {
+        clearTimeout(contentChangeTimerRef.current);
+      }
+    };
   }, [entries, page, search, typeFilter, statusFilter, dateFilter, onContentChange]);
 
   const handleReveal = async (entry: MeetingHistoryEntry) => {

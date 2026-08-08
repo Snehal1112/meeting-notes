@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Toaster } from "sonner";
@@ -324,7 +324,9 @@ describe("MeetingHistory", () => {
       render(<MeetingHistory onBack={() => {}} onContentChange={onContentChange} />);
 
       await screen.findByText("Standup");
-      expect(onContentChange).toHaveBeenCalled();
+      // Debounced (see CONTENT_CHANGE_DEBOUNCE_MS) -- the call lands shortly
+      // after render settles, not synchronously with it.
+      await waitFor(() => expect(onContentChange).toHaveBeenCalled());
     });
 
     it("fires again when paginating to a page with a different row count", async () => {
@@ -332,12 +334,13 @@ describe("MeetingHistory", () => {
       getMeetingHistory.mockResolvedValue(seedEntries(7));
       render(<MeetingHistory onBack={() => {}} onContentChange={onContentChange} />);
       await screen.findByText("Meeting 0");
+      await waitFor(() => expect(onContentChange).toHaveBeenCalled());
 
       const callsAfterLoad = onContentChange.mock.calls.length;
       await userEvent.setup().click(screen.getByLabelText(/go to next page/i));
       await screen.findByText("Meeting 5");
 
-      expect(onContentChange.mock.calls.length).toBeGreaterThan(callsAfterLoad);
+      await waitFor(() => expect(onContentChange.mock.calls.length).toBeGreaterThan(callsAfterLoad));
     });
 
     it("fires again when the search text narrows the results", async () => {
@@ -345,12 +348,13 @@ describe("MeetingHistory", () => {
       getMeetingHistory.mockResolvedValue(seedEntries(7));
       render(<MeetingHistory onBack={() => {}} onContentChange={onContentChange} />);
       await screen.findByText("Meeting 0");
+      await waitFor(() => expect(onContentChange).toHaveBeenCalled());
 
       const callsAfterLoad = onContentChange.mock.calls.length;
       fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "Meeting 6" } });
       await screen.findByText("Meeting 6");
 
-      expect(onContentChange.mock.calls.length).toBeGreaterThan(callsAfterLoad);
+      await waitFor(() => expect(onContentChange.mock.calls.length).toBeGreaterThan(callsAfterLoad));
     });
 
     it("fires again after a re-run refreshes the entries", async () => {
@@ -360,13 +364,37 @@ describe("MeetingHistory", () => {
       const user = userEvent.setup();
       render(<MeetingHistory onBack={() => {}} onContentChange={onContentChange} />);
       await screen.findByText("Standup");
+      await waitFor(() => expect(onContentChange).toHaveBeenCalled());
 
       const callsAfterLoad = onContentChange.mock.calls.length;
       await user.click(screen.getByRole("button", { name: /actions/i }));
       await user.click(await screen.findByText(/re-run summarization/i));
 
       await screen.findByText("Updated.");
-      expect(onContentChange.mock.calls.length).toBeGreaterThan(callsAfterLoad);
+      await waitFor(() => expect(onContentChange.mock.calls.length).toBeGreaterThan(callsAfterLoad));
+    });
+
+    it("coalesces rapid successive keystrokes into a single debounced call", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const onContentChange = vi.fn();
+      getMeetingHistory.mockResolvedValue(seedEntries(7));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<MeetingHistory onBack={() => {}} onContentChange={onContentChange} />);
+      await screen.findByText("Meeting 0");
+      // Let the initial-load call settle before measuring the search-driven
+      // calls in isolation.
+      await vi.waitFor(() => expect(onContentChange).toHaveBeenCalled());
+
+      const callsBeforeTyping = onContentChange.mock.calls.length;
+      const search = screen.getByPlaceholderText(/search/i);
+      // Five separate keystrokes, each well inside the debounce window --
+      // without debouncing this would fire onContentChange five times.
+      await user.type(search, "Meeti");
+      expect(onContentChange.mock.calls.length).toBe(callsBeforeTyping);
+
+      await vi.advanceTimersByTimeAsync(250);
+      expect(onContentChange.mock.calls.length).toBe(callsBeforeTyping + 1);
+      vi.useRealTimers();
     });
   });
 
