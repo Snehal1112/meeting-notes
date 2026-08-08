@@ -145,17 +145,25 @@ function App() {
     };
   }, [widgetState]);
 
-  // Makes the pill's transparent corners (outside its rounded-full shape,
-  // but still inside the actual rectangular OS window) click-through --
-  // see src-tauri/src/commands/window_commands.rs for why this needs a
-  // Rust-side poll loop rather than a JS mousemove listener. Idle is
-  // deliberately excluded: its corner radius is small enough (rounded-lg)
-  // that the same problem there is not worth the tracking overhead.
+  // Makes the Recording pill's transparent corners (outside its
+  // rounded-full shape, but still inside the actual rectangular OS window)
+  // click-through -- see src-tauri/src/commands/window_commands.rs for why
+  // this needs a Rust-side poll loop rather than a JS mousemove listener.
+  // Only Recording gets this: it's the only remaining state that actually
+  // renders as a stadium/pill shape. Processing grew into a 340x220
+  // rounded-2xl card (see PILL_SIZES above) whose corners are only mildly
+  // rounded and mostly opaque -- the stadium mask (radius = height / 2) would
+  // carve large elliptical chunks out of a shape that isn't a pill anymore,
+  // making the card's corners spuriously click-through and breaking
+  // corner-grab dragging. Idle is deliberately excluded too: its corner
+  // radius is small enough (rounded-lg) that the same problem there is not
+  // worth the tracking overhead.
+  const useStadiumMask = widgetState === "recording";
   useEffect(() => {
-    void setClickThroughTracking(isPill).catch((err) =>
+    void setClickThroughTracking(useStadiumMask).catch((err) =>
       console.error("Could not toggle click-through tracking:", err)
     );
-  }, [isPill]);
+  }, [useStadiumMask]);
 
   useEffect(() => {
     configNeedsSetup().then(setShowConfigDialog);

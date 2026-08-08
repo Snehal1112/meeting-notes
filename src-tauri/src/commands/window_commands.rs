@@ -129,10 +129,16 @@ mod tests {
         assert!(!region.contains_point(300, 10));
     }
 
-    #[test]
-    fn tracks_the_processing_pills_different_size() {
-        let processing = stadium_region((280.0, 64.0));
-        assert!(processing.contains_point(140, 1));
-        assert!(!processing.contains_point(0, 0));
-    }
+    // No "processing pill" stadium-region test remains here on purpose: the
+    // Processing state grew into a 340x220 rounded-2xl card (see App.tsx's
+    // PILL_SIZES) and the frontend no longer requests this mask for it at
+    // all (only Recording -- a true stadium/pill shape -- calls
+    // setClickThroughTracking(true); see App.tsx's useStadiumMask). The old
+    // test here asserted against stadium_region((280.0, 64.0)), a size the
+    // app never uses for Processing even before this change (Processing was
+    // already 340x220), and exercised a code path ("apply the stadium mask
+    // to Processing") that no longer exists. Keeping it would have given
+    // false confidence about a shape and call site nothing in the app still
+    // produces. stadium_region itself remains fully covered above via
+    // RECORDING_PILL, which is what's actually still in use.
 }

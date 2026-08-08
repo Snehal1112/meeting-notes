@@ -1069,4 +1069,63 @@ describe("RecorderWidget summary checklist", () => {
       vi.useRealTimers();
     }
   });
+
+  // Regression for Finding 2 of the final whole-branch review: processingStatus
+  // flips to "summarizing" (which is what makes SummaryChecklist render at
+  // all) inside onTranscriptionComplete's callback, before the getConfig()
+  // await in that same callback and before runSummarization -- the function
+  // that actually resets summaryStep/summaryChunk/summaryFailed -- is even
+  // called. Without resetting that state at the same point processingStatus
+  // flips, a new meeting's checklist could render for one real IPC round trip
+  // using a PREVIOUS meeting's leftover state, e.g. showing a red error icon
+  // on a step the new meeting hasn't started yet.
+  it("does not flash a previous run's failed checklist step while the next meeting's summarization is still starting", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { summarizeMeeting } = await import("@/lib/summary");
+      const { getConfig } = await import("@/lib/config");
+      let rejectSummarize: ((err: Error) => void) | undefined;
+      vi.mocked(summarizeMeeting).mockImplementation(
+        () => new Promise((_resolve, reject) => (rejectSummarize = reject))
+      );
+      const first = await captureBothCallbacks();
+
+      render(
+        <>
+          <Toaster />
+          <RecorderWidget />
+        </>
+      );
+
+      // First meeting: summarization fails mid-checklist. Neither summaryStep
+      // nor summaryFailed is reset by the return-to-idle path itself (see
+      // runSummarization's finally block), so both are still "ActionItems" /
+      // true once the widget is back at Idle.
+      fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+      fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+      await first.fireTranscription(transcribedMeeting);
+      await first.fireProgress({ pass: "ActionItems", chunk_index: 0, chunk_total: 1 });
+      await act(async () => rejectSummarize!(new Error("endpoint down")));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
+      expect(await screen.findByRole("button", { name: /start recording/i })).toBeInTheDocument();
+
+      // Second meeting: hang getConfig so the widget is paused exactly in the
+      // one-IPC-round-trip window this finding is about -- after
+      // processingStatus flips to "summarizing" but before runSummarization
+      // (and its own resets) ever runs.
+      vi.mocked(getConfig).mockImplementation(() => new Promise(() => {}));
+      const second = await captureBothCallbacks();
+      fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+      fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+      await second.fireTranscription(transcribedMeeting);
+
+      // The checklist is now rendering for the new meeting -- it must not
+      // show the previous run's failed step.
+      expect(screen.getByText("Finding action items").className).not.toContain("text-red-600");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

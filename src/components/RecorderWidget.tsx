@@ -247,6 +247,18 @@ export function RecorderWidget({
         if (cancelled) return;
         currentMeetingRef.current = updated;
         setProcessingStatus("summarizing");
+        // Reset the checklist's visible state right here, not just later
+        // inside runSummarization. processingStatus flips to "summarizing"
+        // (and SummaryChecklist starts rendering) before the getConfig()
+        // await below and before runSummarization is even called, so without
+        // this the checklist would render for one real IPC round trip using
+        // stale summaryStep/summaryChunk/summaryFailed left over from a
+        // PREVIOUS meeting's run -- e.g. briefly flashing a red error icon on
+        // a step that hasn't started yet for this meeting.
+        setSummaryStep(null);
+        summaryStepRef.current = null;
+        setSummaryChunk({ index: 0, total: 1 });
+        setSummaryFailed(false);
 
         // Determine which providers are actually usable for this run. Fetched
         // fresh here (rather than reusing the mount-time `config` state)
