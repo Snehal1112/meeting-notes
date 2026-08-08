@@ -2,9 +2,10 @@ pub mod commands;
 
 use commands::recording_commands::RecordingState;
 use std::sync::Mutex;
-use tauri::Manager;
+use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::image::Image;
+use tauri::{Emitter, Manager};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -97,9 +98,34 @@ pub fn run() {
             let tray_icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))
                 .expect("failed to load tray icon");
 
+            let show_item = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
+            let new_recording_item =
+                MenuItem::with_id(app, "new_recording", "New Recording", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let tray_menu =
+                Menu::with_items(app, &[&show_item, &new_recording_item, &quit_item])?;
+
             TrayIconBuilder::new()
                 .icon(tray_icon)
                 .tooltip("Meeting Notes")
+                .menu(&tray_menu)
+                .on_menu_event(move |app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "new_recording" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                            let _ = app.emit("tray-new-recording", ());
+                        }
+                    }
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
                 .build(app)?;
 
             Ok(())

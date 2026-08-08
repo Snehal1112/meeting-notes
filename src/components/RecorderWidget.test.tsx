@@ -735,6 +735,52 @@ describe("RecorderWidget resuming an interrupted recording", () => {
   });
 });
 
+describe("RecorderWidget tray-triggered new recording", () => {
+  it("does not start a recording on mount, even with a non-zero initial trigger value", async () => {
+    const { startRecording } = await import("@/lib/recording");
+    render(<RecorderWidget triggerNewRecording={3} />);
+    // Give any (incorrect) effect a chance to fire before asserting it didn't.
+    await Promise.resolve();
+    expect(startRecording).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /start recording/i })).toBeInTheDocument();
+  });
+
+  it("starts a recording when triggerNewRecording changes while idle", async () => {
+    const { startRecording } = await import("@/lib/recording");
+    const { rerender } = render(<RecorderWidget triggerNewRecording={0} />);
+    expect(startRecording).not.toHaveBeenCalled();
+
+    rerender(<RecorderWidget triggerNewRecording={1} />);
+
+    expect(await screen.findByRole("button", { name: /stop recording/i })).toBeInTheDocument();
+    expect(startRecording).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a tray trigger while a recording is already in progress", async () => {
+    const { startRecording } = await import("@/lib/recording");
+    const { rerender } = render(<RecorderWidget triggerNewRecording={0} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    await screen.findByRole("button", { name: /stop recording/i });
+    expect(startRecording).toHaveBeenCalledTimes(1);
+
+    // A second trigger arriving mid-recording must not start a second one.
+    rerender(<RecorderWidget triggerNewRecording={1} />);
+    await Promise.resolve();
+    expect(startRecording).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not re-fire on an unrelated re-render where the trigger value is unchanged", async () => {
+    const { startRecording } = await import("@/lib/recording");
+    const { rerender } = render(
+      <RecorderWidget triggerNewRecording={1} onStateChange={() => {}} />
+    );
+    rerender(<RecorderWidget triggerNewRecording={1} onStateChange={() => {}} />);
+    await Promise.resolve();
+    expect(startRecording).not.toHaveBeenCalled();
+  });
+});
+
 describe("RecorderWidget provider picker", () => {
   it("persists a provider change without clearing the rest of the config", async () => {
     const { getConfig, saveConfig, setSummaryProvider } = await import("@/lib/config");

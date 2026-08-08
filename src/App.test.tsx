@@ -33,17 +33,21 @@ vi.mock("@/lib/window", () => ({
   setClickThroughTracking: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Captures the "external-mic-activity" listener App registers so tests can
-// fire it directly, the same way RecorderWidget's onStateChange transitions
-// are driven via the stubbed go-recording/go-idle buttons below rather than
-// a real Tauri backend.
+// Captures the "external-mic-activity" and "tray-new-recording" listeners
+// App registers so tests can fire them directly, the same way
+// RecorderWidget's onStateChange transitions are driven via the stubbed
+// go-recording/go-idle buttons below rather than a real Tauri backend.
 let micActivityListener: (() => void) | undefined;
+let trayNewRecordingListener: (() => void) | undefined;
 const setFocus = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn((event: string, callback: () => void) => {
     if (event === "external-mic-activity") {
       micActivityListener = callback;
+    }
+    if (event === "tray-new-recording") {
+      trayNewRecordingListener = callback;
     }
     return Promise.resolve(() => {});
   }),
@@ -131,9 +135,11 @@ vi.mock("@/components/RecorderWidget", () => ({
   RecorderWidget: ({
     resumeMeeting,
     onStateChange,
+    triggerNewRecording,
   }: {
     resumeMeeting?: MeetingMeta | null;
     onStateChange?: (state: MockWidgetState) => void;
+    triggerNewRecording?: number;
   }) => {
     const idRef = useRef<number | null>(null);
     if (idRef.current === null) {
@@ -143,6 +149,7 @@ vi.mock("@/components/RecorderWidget", () => ({
     return (
       <div data-testid="recorder">
         <span data-testid="recorder-mount-id">{idRef.current}</span>
+        <span data-testid="recorder-trigger-new-recording">{triggerNewRecording}</span>
         {resumeMeeting ? `resuming:${resumeMeeting.id}` : "idle"}
         <button onClick={() => onStateChange?.("recording")}>go-recording</button>
         <button onClick={() => onStateChange?.("processing")}>go-processing</button>
@@ -198,6 +205,7 @@ beforeEach(async () => {
 
   recorderMountCount = 0;
   micActivityListener = undefined;
+  trayNewRecordingListener = undefined;
   setFocus.mockClear();
 });
 
@@ -656,6 +664,48 @@ describe("App meeting history", () => {
       true,
       "idle:false:false:0",
       undefined
+    );
+  });
+});
+
+// The system tray's "New Recording" menu item (src-tauri/src/lib.rs)
+// shows/focuses the window and emits "tray-new-recording"; App.tsx listens
+// for that event and hands a bumped counter down to RecorderWidget via the
+// triggerNewRecording prop, which is what actually decides -- inside
+// RecorderWidget itself -- whether to start a real recording.
+describe("App tray-triggered new recording", () => {
+  it("bumps triggerNewRecording each time the tray event fires", async () => {
+    render(<App />);
+    await screen.findByTestId("recorder");
+    expect(screen.getByTestId("recorder-trigger-new-recording")).toHaveTextContent("0");
+
+    trayNewRecordingListener?.();
+    await vi.waitFor(() =>
+      expect(screen.getByTestId("recorder-trigger-new-recording")).toHaveTextContent("1")
+    );
+
+    trayNewRecordingListener?.();
+    await vi.waitFor(() =>
+      expect(screen.getByTestId("recorder-trigger-new-recording")).toHaveTextContent("2")
+    );
+  });
+
+  // Regression guard for StrictMode's mount -> cleanup -> mount double-invoke
+  // (see the external-mic-activity listener above, which this mirrors): a
+  // single tray event must not register two listeners and double-bump the
+  // counter.
+  it("registers the tray-new-recording listener once under a real mount/cleanup cycle", async () => {
+    const { unmount } = render(<App />);
+    await screen.findByTestId("recorder");
+    expect(trayNewRecordingListener).toBeDefined();
+    unmount();
+
+    render(<App />);
+    await screen.findByTestId("recorder");
+
+    trayNewRecordingListener?.();
+    await vi.waitFor(() =>
+      expect(screen.getByTestId("recorder-trigger-new-recording")).toHaveTextContent("1")
     );
   });
 });

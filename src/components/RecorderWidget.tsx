@@ -33,9 +33,18 @@ interface RecorderWidgetProps {
   /// standalone usage (e.g. tests rendering RecorderWidget on its own) keeps
   /// working unchanged.
   onStateChange?: (state: WidgetState) => void;
+  /// A counter bumped by the caller (App.tsx) each time the system tray's
+  /// "New Recording" menu item is clicked. A counter rather than a boolean
+  /// so two clicks in a row -- both while still idle -- each register as a
+  /// distinct change even though the value in between never resets.
+  triggerNewRecording?: number;
 }
 
-export function RecorderWidget({ resumeMeeting = null, onStateChange }: RecorderWidgetProps = {}) {
+export function RecorderWidget({
+  resumeMeeting = null,
+  onStateChange,
+  triggerNewRecording,
+}: RecorderWidgetProps = {}) {
   const [state, setState] = useState<WidgetState>("idle");
   const [title, setTitle] = useState("");
   const [meetingType, setMeetingType] = useState<MeetingType>("AutoDetect");
@@ -335,6 +344,28 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
       setBusy(false);
     }
   };
+
+  // Fires handleStart when the system tray's "New Recording" menu item is
+  // clicked while the widget is idle. Mirrors the resumeMeeting effect
+  // above's shape, but resumeMeeting can rely on a plain null check because
+  // "nothing to resume" is itself falsy -- triggerNewRecording is a counter
+  // whose legitimate starting value (0, or unset) is not distinguishable
+  // from "no change" that way, so a ref holding the last-seen value is used
+  // instead: only an actual change away from it fires handleStart, so this
+  // never fires on mount or on an unrelated re-render (e.g. entering or
+  // leaving processing) where the counter itself hasn't moved.
+  const prevTriggerNewRecordingRef = useRef(triggerNewRecording);
+  useEffect(() => {
+    if (triggerNewRecording === undefined) return;
+    if (prevTriggerNewRecordingRef.current === triggerNewRecording) return;
+    prevTriggerNewRecordingRef.current = triggerNewRecording;
+    if (state === "idle") {
+      handleStart();
+    }
+    // A recording already in progress (or processing) is deliberately a
+    // no-op here rather than queued -- the tray click is simply ignored,
+    // same as clicking "Start Recording" again mid-recording would be.
+  }, [triggerNewRecording, state]);
 
   const formattedTime = `${String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:${String(
     elapsedSeconds % 60

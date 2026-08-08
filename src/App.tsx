@@ -42,6 +42,12 @@ function App() {
   const [orphaned, setOrphaned] = useState<MeetingMeta[]>([]);
   const [resumeMeeting, setResumeMeeting] = useState<MeetingMeta | null>(null);
   const [widgetState, setWidgetState] = useState<WidgetState>("idle");
+  // Bumped every time the system tray's "New Recording" menu item fires the
+  // "tray-new-recording" event (see the listener effect below). A counter
+  // rather than a boolean so a second click while the first is still
+  // pending (or ignored, e.g. mid-recording) is still a distinct, detectable
+  // change for RecorderWidget's own triggerNewRecording effect to react to.
+  const [trayNewRecordingSignal, setTrayNewRecordingSignal] = useState(0);
   const [showMicBanner, setShowMicBanner] = useState(false);
   // Clears an ignored mic-activity banner the moment the widget leaves Idle
   // for any reason (regardless of whether the user started a recording
@@ -225,6 +231,35 @@ function App() {
     }
   }, [showHistory, showConfigDialog]);
 
+  // Surfaces a real "start recording" the moment the system tray's "New
+  // Recording" menu item is clicked (see src-tauri/src/lib.rs's
+  // on_menu_event, which shows/focuses the window and emits this event).
+  // Mirrors the external-mic-activity listener effect above's
+  // cancelled-guard pattern to survive React StrictMode's double-invoke
+  // without double-registering the listener. The actual "is a recording
+  // already in progress" guard lives inside RecorderWidget's own
+  // triggerNewRecording effect, next to handleStart itself, rather than
+  // being duplicated here from widgetState.
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      const stopListening = await listen("tray-new-recording", () => {
+        if (cancelled) return;
+        setTrayNewRecordingSignal((n) => n + 1);
+      });
+      if (cancelled) {
+        stopListening();
+        return;
+      }
+      unlisten = stopListening;
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
   const handleResume = (id: string) => {
     const meeting = orphaned.find((m) => m.id === id);
     if (!meeting) return;
@@ -331,7 +366,11 @@ function App() {
       )}
       {(isPill || (!showConfigDialog && !showHistory)) && (
         <div className={isPill ? undefined : "flex-1 p-4 overflow-hidden"}>
-          <RecorderWidget resumeMeeting={resumeMeeting} onStateChange={handleWidgetStateChange} />
+          <RecorderWidget
+            resumeMeeting={resumeMeeting}
+            onStateChange={handleWidgetStateChange}
+            triggerNewRecording={trayNewRecordingSignal}
+          />
         </div>
       )}
       </div>
