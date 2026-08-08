@@ -1,9 +1,30 @@
 use meeting_notes_storage::{load_index, save_index};
 use std::path::{Path, PathBuf};
 
+/// Validates a data-directory path supplied by the frontend before any
+/// filesystem operation touches it. These paths normally come straight from
+/// a native OS folder picker, but the IPC boundary itself enforces nothing,
+/// so a compromised or buggy renderer could otherwise pass an empty string,
+/// a relative path, or the filesystem root -- the latter being especially
+/// dangerous since `migrate_meetings`'s `move_dir` fallback can end up
+/// calling `remove_dir_all` on its source.
+fn validate_data_dir_path(path: &str) -> Result<PathBuf, String> {
+    if path.is_empty() {
+        return Err("data directory path must not be empty".to_string());
+    }
+    let candidate = Path::new(path);
+    if !candidate.is_absolute() {
+        return Err("data directory path must be absolute".to_string());
+    }
+    if candidate == Path::new("/") {
+        return Err("data directory path must not be the filesystem root".to_string());
+    }
+    Ok(candidate.to_path_buf())
+}
+
 #[tauri::command]
 pub fn count_meetings_at(path: String) -> Result<usize, String> {
-    let dir = PathBuf::from(path);
+    let dir = validate_data_dir_path(&path)?;
     if !dir.exists() {
         return Ok(0);
     }
@@ -23,8 +44,8 @@ pub fn count_meetings_at(path: String) -> Result<usize, String> {
 /// the returned `Err` names it.
 #[tauri::command]
 pub fn migrate_meetings(from: String, to: String) -> Result<(), String> {
-    let from_base = PathBuf::from(&from);
-    let to_base = PathBuf::from(&to);
+    let from_base = validate_data_dir_path(&from)?;
+    let to_base = validate_data_dir_path(&to)?;
     let from_dir = from_base.join("meetings");
     let to_dir = to_base.join("meetings");
     std::fs::create_dir_all(&to_dir).map_err(|e| e.to_string())?;
@@ -346,5 +367,103 @@ mod tests {
 
         std::fs::remove_dir_all(&from).ok();
         std::fs::remove_dir_all(&to).ok();
+    }
+
+    #[test]
+    fn count_meetings_rejects_an_empty_path() {
+        let result = count_meetings_at(String::new());
+        assert!(result.is_err(), "empty path must be rejected");
+    }
+
+    #[test]
+    fn count_meetings_rejects_a_relative_path() {
+        let result = count_meetings_at("relative/path".to_string());
+        assert!(result.is_err(), "relative path must be rejected");
+    }
+
+    #[test]
+    fn count_meetings_rejects_the_filesystem_root() {
+        let result = count_meetings_at("/".to_string());
+        assert!(result.is_err(), "filesystem root must be rejected");
+    }
+
+    #[test]
+    fn count_meetings_still_returns_zero_for_a_nonexistent_absolute_dir() {
+        // Regression guard: validation must not break the existing
+        // "unset/never-used location" behavior of returning 0 rather than
+        // an error.
+        let base = temp_base("count-nonexistent");
+        let dir = base.join("does-not-exist");
+
+        let result = count_meetings_at(dir.to_string_lossy().to_string());
+        assert_eq!(result, Ok(0));
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn count_meetings_still_counts_entries_in_a_valid_absolute_dir() {
+        // Regression guard: validation must not break normal operation.
+        let base = temp_base("count-valid");
+        write_meeting_dir(&base, "a");
+        write_index(&base, &[meta("a", "A")]);
+
+        let result = count_meetings_at(base.to_string_lossy().to_string());
+        assert_eq!(result, Ok(1));
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn migrate_rejects_an_empty_from_path() {
+        let to = temp_base("migrate-invalid-from-to");
+        let result = migrate_meetings(String::new(), to.to_string_lossy().to_string());
+        assert!(result.is_err(), "empty `from` must be rejected");
+        std::fs::remove_dir_all(&to).ok();
+    }
+
+    #[test]
+    fn migrate_rejects_a_relative_to_path() {
+        let from = temp_base("migrate-invalid-to-from");
+        let result = migrate_meetings(from.to_string_lossy().to_string(), "relative/path".to_string());
+        assert!(result.is_err(), "relative `to` must be rejected");
+        std::fs::remove_dir_all(&from).ok();
+    }
+
+    #[test]
+    fn migrate_rejects_the_filesystem_root_as_from() {
+        // Guards against the catastrophic case: `migrate_meetings`'s
+        // `move_dir` fallback calls `remove_dir_all` on its source, so `/`
+        // must never reach that code path.
+        let result = migrate_meetings("/".to_string(), "/tmp/meeting-notes-migrate-root-test".to_string());
+        assert!(result.is_err(), "`/` as `from` must be rejected");
+    }
+
+    #[test]
+    fn migrate_rejects_the_filesystem_root_as_to() {
+        let from = temp_base("migrate-root-to-from");
+        let result = migrate_meetings(from.to_string_lossy().to_string(), "/".to_string());
+        assert!(result.is_err(), "`/` as `to` must be rejected");
+        std::fs::remove_dir_all(&from).ok();
+    }
+
+    #[test]
+    fn migrate_rejects_invalid_to_without_mutating_from() {
+        // No filesystem mutation must happen before validation runs --
+        // otherwise a bad `to` could still trigger the source-side
+        // remove_dir_all fallback in `move_dir`.
+        let from = temp_base("migrate-invalid-to-no-mutate-from");
+        write_meeting_dir(&from, "a");
+        write_index(&from, &[meta("a", "A")]);
+
+        let result =
+            migrate_meetings(from.to_string_lossy().to_string(), "relative/path".to_string());
+        assert!(result.is_err());
+        assert!(
+            from.join("meetings").join("a").join("summary.md").exists(),
+            "source files must be untouched when `to` is rejected"
+        );
+
+        std::fs::remove_dir_all(&from).ok();
     }
 }
