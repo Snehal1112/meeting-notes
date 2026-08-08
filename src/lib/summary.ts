@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { AppConfig } from "@/lib/config";
 
 export interface Topic {
@@ -23,6 +24,24 @@ export interface SummaryResult {
 }
 
 export type ProviderKind = "Claude" | "Ollama";
+
+// Mirrors meeting_notes_core::summary::SummaryPass -- a plain Rust enum
+// serializes as its variant name verbatim (PascalCase, no rename), matching
+// how ProviderKind above already mirrors its Rust counterpart the same way.
+export type SummaryPass = "NotesAndSummary" | "ActionItems" | "OpenQuestions";
+
+// Mirrors meeting_notes_core::summary::SummaryProgress.
+export interface SummaryProgress {
+  pass: SummaryPass;
+  chunk_index: number;
+  chunk_total: number;
+}
+
+// Fired once per generate_notes pass (see crates/meeting-notes-summary/src/notes.rs),
+// immediately before that pass's LLM call. Mirrors onTranscriptionComplete's
+// shape in src/lib/transcription.ts.
+export const onSummaryProgress = (callback: (progress: SummaryProgress) => void) =>
+  listen<SummaryProgress>("summary-progress", (event) => callback(event.payload));
 
 // Single conversion point between the persisted, lowercase ProviderName
 // ("ollama" | "claude", as stored in AppConfig.summary_provider) and the
