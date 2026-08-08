@@ -95,6 +95,8 @@ pub use macos::RecordingHandle;
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 compile_error!("meeting-notes-audio currently supports Linux and macOS only");
 
+pub mod mic_watcher;
+
 /// Assembles the final recording from the mic (and, if present, system)
 /// capture files, then runs quality trim/check on the result. On a mix
 /// failure, falls back to the mic-only recording rather than losing it --
