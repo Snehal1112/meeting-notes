@@ -20,7 +20,7 @@ import { setClickThroughTracking } from "@/lib/window";
 // drives this table), so a fixed size for those two states would regress the
 // config dialog's ability to grow the window taller than 300px.
 const PILL_SIZES: Record<"recording" | "processing", { width: number; height: number }> = {
-  recording: { width: 224, height: 56 },
+  recording: { width: 60, height: 196 },
   // Sized for the SummaryChecklist card (3 step rows + label + optional
   // chunk-progress line, see SummaryChecklist.tsx), not the compact single
   // line this pill originally held. Applies for the whole Processing state

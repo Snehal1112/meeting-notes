@@ -461,7 +461,7 @@ export function RecorderWidget({
     // stays in the Idle branch, where it's real. micOnlyWarning, by
     // contrast, genuinely can be true here (handleStart sets it right before
     // this transition), so it still needs to be surfaced -- just compactly,
-    // since this pill is a small fixed-size window (224x56).
+    // since this pill is a small fixed-size window (60x196).
     return (
       <div
         data-tauri-drag-region
@@ -470,9 +470,9 @@ export function RecorderWidget({
         // under WebKitGTK, this project's primary platform. requireSelfTarget
         // keeps the fallback from swallowing presses on the Stop button.
         onMouseDown={(e) => startWindowDrag(e, { requireSelfTarget: true })}
-        className="h-full w-full flex items-center justify-center gap-2.5 bg-background border rounded-full pl-3.5 pr-2 py-2 shadow-sm"
+        className="h-full w-full flex flex-col items-center justify-between rounded-full py-3 px-0 bg-gradient-to-b from-background to-muted shadow-[0_12px_32px_-8px_rgba(31,36,48,0.22),0_2px_8px_rgba(31,36,48,0.08)]"
       >
-        <span className="h-1.5 w-1.5 rounded-full bg-destructive animate-pulse flex-shrink-0" />
+        <span className="h-1.5 w-1.5 rounded-full bg-destructive animate-pulse flex-shrink-0 shadow-[0_0_8px_rgba(229,72,77,0.55)]" />
         {micOnlyWarning && (
           <span
             role="img"
@@ -483,17 +483,15 @@ export function RecorderWidget({
             <MicOff className="h-3 w-3" aria-hidden="true" />
           </span>
         )}
-        <span className="text-xs font-mono text-foreground tabular-nums flex-shrink-0">
-          {formattedTime}
-        </span>
-        <Waveform active={state === "recording"} compact />
+        <span className="text-[11px] font-mono font-semibold text-foreground tabular-nums">{formattedTime}</span>
+        <Waveform active={state === "recording"} compact orientation="vertical" />
         <Button
           variant="destructive"
           size="icon"
           onClick={handleStop}
           disabled={busy}
           aria-label="Stop Recording"
-          className="h-7 w-7 rounded-full flex-shrink-0 bg-destructive text-white hover:bg-destructive/90"
+          className="h-[34px] w-[34px] rounded-full flex-shrink-0 bg-gradient-to-br from-[#FF6B6E] to-[#D93B3F] shadow-[0_4px_12px_-2px_rgba(217,59,63,0.55)]"
         >
           <Square className="h-2.5 w-2.5 fill-current" />
         </Button>

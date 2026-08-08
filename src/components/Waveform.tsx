@@ -3,9 +3,15 @@ import { useEffect, useRef } from "react";
 interface WaveformProps {
   active: boolean;
   // Renders a smaller canvas with fewer, chunkier bars for the Recording
-  // pill's tight 224x56 footprint -- the full-size canvas below is sized for
+  // pill's tight 60x196 footprint -- the full-size canvas below is sized for
   // the old, roomier card layout and would overflow the pill.
   compact?: boolean;
+  // Rotates the compact waveform so its bars run top-to-bottom instead of
+  // left-to-right, for the vertical Recording capsule (60px wide) -- the
+  // default horizontal layout (90px wide) would overflow that width. Only
+  // meaningful together with `compact`; the full-size waveform never
+  // appears in a vertical layout, so it ignores this prop.
+  orientation?: "horizontal" | "vertical";
 }
 
 // Eases a displayed value a `factor` fraction of the way toward `target` —
@@ -25,12 +31,16 @@ export function colorForIntensity(intensity: number, destructiveColor: string): 
   return destructiveColor;
 }
 
-export function Waveform({ active, compact = false }: WaveformProps) {
+export function Waveform({ active, compact = false, orientation = "horizontal" }: WaveformProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | undefined>(undefined);
 
-  const width = compact ? 90 : 320;
-  const height = compact ? 20 : 60;
+  const vertical = compact && orientation === "vertical";
+  // Vertical is the horizontal compact canvas' own dimensions swapped, not a
+  // new pair of numbers -- same total bar budget, just rotated to fit the
+  // capsule's 60px width instead of its 196px height.
+  const width = vertical ? 20 : compact ? 90 : 320;
+  const height = vertical ? 90 : compact ? 20 : 60;
   const fftSize = compact ? 32 : 64;
   const minBarHeight = compact ? 1.5 : 2;
 
@@ -78,7 +88,14 @@ export function Waveform({ active, compact = false }: WaveformProps) {
           if (!ctx) return;
           analyser.getByteFrequencyData(dataArray);
           ctx.clearRect(0, 0, canvas.width, canvas.height);
-          const barWidth = canvas.width / dataArray.length;
+          // Bars are always distributed along the "cross" axis (one slot per
+          // frequency bin) and extend along the "main" axis by intensity.
+          // Horizontal: cross = width (x), main = height (y) -- the
+          // original layout. Vertical: cross = height (y), main = width (x)
+          // -- the same drawing logic, rotated 90 degrees.
+          const crossAxis = vertical ? canvas.height : canvas.width;
+          const mainAxis = vertical ? canvas.width : canvas.height;
+          const barSpacing = crossAxis / dataArray.length;
           // Read the live --destructive custom property fresh on every
           // frame (rather than once outside the loop) so a light/dark theme
           // toggle mid-recording is picked up immediately. This repo's
@@ -95,25 +112,31 @@ export function Waveform({ active, compact = false }: WaveformProps) {
           const destructiveColor =
             getComputedStyle(document.documentElement).getPropertyValue("--destructive").trim() ||
             "oklch(0.577 0.245 27.325)";
-          const centerY = canvas.height / 2;
-          // lineWidth/lineCap don't vary per bar (barWidth is fixed above the
-          // loop), so they're set once here rather than redundantly on every
-          // iteration -- canvas 2D context state persists across draw calls.
-          ctx.lineWidth = barWidth * 0.6;
+          const center = mainAxis / 2;
+          // lineWidth/lineCap don't vary per bar (barSpacing is fixed above
+          // the loop), so they're set once here rather than redundantly on
+          // every iteration -- canvas 2D context state persists across draw
+          // calls.
+          ctx.lineWidth = barSpacing * 0.6;
           ctx.lineCap = "round";
           dataArray.forEach((value, i) => {
             const target = value / 255;
             displayed[i] = easeTowards(displayed[i], target, SMOOTHING_FACTOR);
-            // Reserve lineWidth's worth of height budget (barWidth * 0.6) so
-            // the round cap's overhang (lineWidth / 2 past each endpoint)
-            // never gets clipped by the canvas edge at max volume -- an
-            // uncapped bar would otherwise flatten to a square top exactly in
-            // the loud/red tier, the opposite of the intended look.
-            const barHeight = Math.max(minBarHeight, displayed[i] * (canvas.height - barWidth * 0.6));
-            const x = i * barWidth + barWidth / 2;
+            // Reserve lineWidth's worth of budget (barSpacing * 0.6) so the
+            // round cap's overhang (lineWidth / 2 past each endpoint) never
+            // gets clipped by the canvas edge at max volume -- an uncapped
+            // bar would otherwise flatten to a square top exactly in the
+            // loud/red tier, the opposite of the intended look.
+            const barLength = Math.max(minBarHeight, displayed[i] * (mainAxis - barSpacing * 0.6));
+            const pos = i * barSpacing + barSpacing / 2;
             ctx.beginPath();
-            ctx.moveTo(x, centerY - barHeight / 2);
-            ctx.lineTo(x, centerY + barHeight / 2);
+            if (vertical) {
+              ctx.moveTo(center - barLength / 2, pos);
+              ctx.lineTo(center + barLength / 2, pos);
+            } else {
+              ctx.moveTo(pos, center - barLength / 2);
+              ctx.lineTo(pos, center + barLength / 2);
+            }
             ctx.strokeStyle = colorForIntensity(displayed[i], destructiveColor);
             ctx.stroke();
           });

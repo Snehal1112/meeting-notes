@@ -361,7 +361,7 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
     );
 
     // Back out of the pill: the hook must be handed sizing again, or the
-    // window would stay stuck at the pill's 224x56 on the Done/Idle screen.
+    // window would stay stuck at the pill's 60x196 on the Done/Idle screen.
     // widgetState is also passed as remeasureKey here -- distinct from
     // "recording"/"processing" above -- so this transition forces a fresh
     // measurement even though `enabled` alone doesn't change from the
