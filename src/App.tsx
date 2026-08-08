@@ -175,20 +175,30 @@ function App() {
   // themselves. Mirrors onTranscriptionComplete's cancelled-guard pattern
   // (see RecorderWidget.tsx) to survive React StrictMode's double-invoke
   // without double-registering the listener.
+  //
+  // showHistory/showConfigDialog are also checked here (and listed as
+  // deps) -- neither changes widgetState (both overlay Idle without
+  // touching it), so without this guard an event arriving while either is
+  // open would still flip showMicBanner to true underneath it. The render
+  // guard would hide it in the moment, same as it does for a banner shown
+  // before the overlay opened, but see the effect below for why that's not
+  // enough on its own.
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     (async () => {
       const stopListening = await listen("external-mic-activity", () => {
         if (cancelled) return;
-        if (widgetState === "idle") {
+        if (widgetState === "idle" && !showHistory && !showConfigDialog) {
           getCurrentWindow().setFocus().catch((err) =>
             console.error("Could not focus window for mic activity:", err)
           );
           setShowMicBanner(true);
         }
-        // Deliberately no-op if already recording/processing -- the user is
-        // already doing the thing this banner would have suggested.
+        // Deliberately no-op if already recording/processing, or if History/
+        // Settings is open -- the user is already doing the thing this
+        // banner would have suggested, or is busy elsewhere and shouldn't
+        // be interrupted by chrome popping up behind an open panel.
       });
       if (cancelled) {
         stopListening();
@@ -200,7 +210,20 @@ function App() {
       cancelled = true;
       unlisten?.();
     };
-  }, [widgetState]);
+  }, [widgetState, showHistory, showConfigDialog]);
+
+  // Clears a shown-while-idle mic-activity banner the moment History or
+  // Settings opens. Regression guard: the render guard on MicActivityBanner
+  // below (`!showHistory`, `!showConfigDialog`) only hides an already-shown
+  // banner while either panel is open -- it doesn't clear showMicBanner
+  // itself. Without this effect, a banner shown before the user opened
+  // History/Settings would silently reappear the moment they closed it,
+  // even though no new mic activity happened while they were away.
+  useEffect(() => {
+    if (showHistory || showConfigDialog) {
+      setShowMicBanner(false);
+    }
+  }, [showHistory, showConfigDialog]);
 
   const handleResume = (id: string) => {
     const meeting = orphaned.find((m) => m.id === id);

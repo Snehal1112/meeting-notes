@@ -469,6 +469,63 @@ describe("App mic activity banner", () => {
     fireEvent.click(screen.getByRole("button", { name: /dismiss/i }));
     expect(screen.queryByText(/mic is active/i)).not.toBeInTheDocument();
   });
+
+  // Regression test: opening History/Settings doesn't change widgetState
+  // (it stays "idle" the whole time), so handleWidgetStateChange's
+  // leave-idle clear above never fires for this path. Before this fix, a
+  // banner shown while idle was merely hidden by History's render guard,
+  // not cleared -- closing History would then let the same stale banner
+  // silently resurface with no new mic-activity event.
+  it("clears an ignored banner once History opens, so it does not reappear when History closes", async () => {
+    render(<App />);
+    await screen.findByTestId("recorder");
+
+    micActivityListener?.();
+    expect(await screen.findByText(/mic is active/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "open-history" }));
+    await screen.findByTestId("history");
+
+    fireEvent.click(screen.getByRole("button", { name: "history-back" }));
+
+    await screen.findByTestId("recorder");
+    expect(screen.queryByText(/mic is active/i)).not.toBeInTheDocument();
+  });
+
+  // Same regression, via the Settings panel instead of History -- neither
+  // overlay changes widgetState, so both need the same explicit clear.
+  it("clears an ignored banner once Settings opens, so it does not reappear when Settings closes", async () => {
+    render(<App />);
+    await screen.findByTestId("recorder");
+
+    micActivityListener?.();
+    expect(await screen.findByText(/mic is active/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "open-settings" }));
+    await screen.findByText(/set up meeting notes/i);
+
+    fireEvent.click(screen.getByRole("button", { name: /skip/i }));
+
+    await screen.findByTestId("recorder");
+    expect(screen.queryByText(/mic is active/i)).not.toBeInTheDocument();
+  });
+
+  // A mic-activity event arriving while History is already open must not
+  // set the banner underneath it either -- otherwise it would surface the
+  // instant History closes, indistinguishable from genuinely fresh activity.
+  it("does not show the banner for an event that arrives while History is open", async () => {
+    render(<App />);
+    await screen.findByTestId("recorder");
+
+    fireEvent.click(screen.getByRole("button", { name: "open-history" }));
+    await screen.findByTestId("history");
+
+    micActivityListener?.();
+
+    fireEvent.click(screen.getByRole("button", { name: "history-back" }));
+    await screen.findByTestId("recorder");
+    expect(screen.queryByText(/mic is active/i)).not.toBeInTheDocument();
+  });
 });
 
 describe("App meeting history", () => {

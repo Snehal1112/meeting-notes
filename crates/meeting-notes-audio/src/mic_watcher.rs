@@ -24,7 +24,8 @@ pub fn is_own_recording(details: &str) -> bool {
 }
 
 pub fn is_mic_capture(details: &str) -> bool {
-    details.contains("source:") && !details.contains(".monitor")
+    details.contains("media.class = \"Stream/Input/Audio\"")
+        && !details.contains("stream.capture.sink = \"true\"")
 }
 
 /// Extracts the source output block for a given ID from pactl text output.
@@ -51,6 +52,29 @@ pub fn fetch_source_output_details(id: u32) -> Option<String> {
         .ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
     extract_source_output_block(&text, id)
+}
+
+/// Parses every `Source Output #<id>` header out of `pactl list
+/// source-outputs` text, in the order they appear. Pure function (doesn't
+/// call pactl itself) so the startup scan in `watch_mic_activity` below can
+/// be exercised in tests without a real pactl process.
+pub fn parse_source_output_ids(text: &str) -> Vec<u32> {
+    text.lines()
+        .filter_map(|line| line.strip_prefix("Source Output #")?.trim().parse().ok())
+        .collect()
+}
+
+/// Lists the IDs of every source-output currently active, by shelling out to
+/// `pactl list source-outputs` once. Used by `watch_mic_activity`'s startup
+/// scan (see below) to catch mic activity already in progress when the
+/// watcher starts, since `pactl subscribe` only reports events from the
+/// moment it starts listening onward.
+fn list_current_source_output_ids() -> Vec<u32> {
+    let Ok(output) = Command::new("pactl").args(["list", "source-outputs"]).output() else {
+        return Vec::new();
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    parse_source_output_ids(&text)
 }
 
 /// The combined check this task exists for: is this event genuinely
@@ -101,6 +125,23 @@ pub fn watch_mic_activity(
     })?;
 
     let mut seen_ids: HashSet<u32> = HashSet::new();
+
+    // Startup scan: `pactl subscribe` (above) only reports NEW events from
+    // the moment it starts listening onward, so if the widget is launched
+    // while a call is already in progress -- the plan's own motivating
+    // scenario ("I forgot the widget existed until I was already five
+    // minutes into the call") -- nothing would otherwise fire, since the
+    // stream already existed before this function ever ran. One pass over
+    // whatever's active right now, seeding `seen_ids` the same way the
+    // subscribe loop below would, closes that gap. Deliberately a single
+    // scan, not a polling loop -- the subscribe loop below is what keeps
+    // watching from here on.
+    for id in list_current_source_output_ids() {
+        if is_external_mic_activity(id) {
+            seen_ids.insert(id);
+            on_external_mic_activity();
+        }
+    }
 
     for line in BufReader::new(stdout).lines().filter_map(|l| l.ok()) {
         let Some(event) = parse_subscribe_line(&line) else { continue };

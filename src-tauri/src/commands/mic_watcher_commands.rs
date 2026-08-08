@@ -25,17 +25,29 @@ pub fn start_mic_watcher(app: &AppHandle) {
     let pid_state = app.state::<MicWatcherPid>().0.clone();
     let app_handle = app.clone();
     std::thread::spawn(move || {
-        let _ = watch_mic_activity(
+        let result = watch_mic_activity(
             move |child_pid| pid_state.store(child_pid as i32, Ordering::SeqCst),
             move || {
                 let _ = app_handle.emit("external-mic-activity", ());
             },
         );
-        // If watch_mic_activity ever returns (pactl not installed, process
-        // died, etc.), this silently stops watching for the rest of the
-        // session rather than crashing the app -- acceptable degradation
-        // for a convenience feature, but worth a log line here in practice
-        // so it's not a silent, undiagnosable feature loss.
+        // If watch_mic_activity ever returns -- pactl not installed, its
+        // subprocess failed to spawn, or (in the Ok case) the `pactl
+        // subscribe` stream ended, e.g. PipeWire/pipewire-pulse restarting
+        // mid-session -- this silently stops watching for the rest of the
+        // session rather than crashing the app. Acceptable degradation for
+        // a convenience feature, but logged so it's not a silent,
+        // undiagnosable feature loss -- README now tells users pactl is
+        // required for this feature, so this is the only signal available
+        // when it's missing or dies mid-session.
+        match result {
+            Ok(()) => {
+                eprintln!("mic activity watcher stopped: pactl subscribe stream ended");
+            }
+            Err(e) => {
+                eprintln!("mic activity watcher failed to start: {e}");
+            }
+        }
     });
 }
 

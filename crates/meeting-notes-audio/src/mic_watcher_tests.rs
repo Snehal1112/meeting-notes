@@ -19,30 +19,55 @@ fn ignores_source_output_remove_events() {
     assert_eq!(parse_subscribe_line(line), None);
 }
 
+// The fixtures below are trimmed `Properties:` excerpts captured from real
+// `pactl list source-outputs` output on a PipeWire/pipewire-pulse system
+// (Ubuntu, pactl 16.1), not hand-written approximations -- see the finding
+// this replaces: the previous fixtures used a `source: <name>` line and a
+// `.monitor`-suffix check that never appear in real pactl output at all
+// (the real field is `Source: <numeric id>`, capitalized, with no name),
+// which is how the `is_mic_capture` bug passed review undetected. Captured
+// via:
+//   parec --raw -d "$(pactl get-default-source)" >/dev/null &   # real mic capture
+//   parec --raw -d "<sink>.monitor" >/dev/null &                 # monitor tap
+//   pw-record --target "$(pactl get-default-source)" out.wav &   # real pw-record capture
+// then `pactl list source-outputs` while each was running.
+
 #[test]
 fn is_own_recording_detects_pw_record_process_name() {
-    let details = "application.process.binary = \"pw-record\"\napplication.name = \"pw-record\"";
+    // Real pw-record output does not set `application.process.binary` at
+    // all (unlike parec/pacat, which goes through the pipewire-pulse
+    // compatibility layer) -- only `application.name` and `node.name`. The
+    // old fixture asserted a property real pw-record never emits.
+    let details = "\t\tapplication.name = \"pw-record\"\n\t\tnode.name = \"pw-record\"\n\t\tmedia.type = \"Audio\"\n\t\tmedia.category = \"Capture\"\n\t\tmedia.class = \"Stream/Input/Audio\"";
     assert!(is_own_recording(details));
 }
 
 #[test]
 fn is_own_recording_false_for_other_processes() {
-    let details = "application.process.binary = \"zoom\"\napplication.name = \"Zoom Meeting\"";
+    // Real capture from `parec` (a third-party-app stand-in): pipewire-pulse
+    // reports its process binary as "pacat" (parec's compatibility shim),
+    // distinct from this app's own "pw-record" captures.
+    let details = "\t\tclient.api = \"pipewire-pulse\"\n\t\tapplication.name = \"parec\"\n\t\tapplication.process.binary = \"pacat\"\n\t\tmedia.class = \"Stream/Input/Audio\"";
     assert!(!is_own_recording(details));
 }
 
 #[test]
 fn is_mic_capture_true_for_real_input_source() {
-    let details = "source: alsa_input.pci-0000_00_1f.3.analog-stereo\nmedia.class = \"Stream/Input/Audio\"";
+    // Real `parec -d $(pactl get-default-source)` capture: a genuine mic
+    // stream. No `stream.capture.sink` property at all -- that only appears
+    // on monitor-source taps (see below).
+    let details = "\t\tclient.api = \"pipewire-pulse\"\n\t\tapplication.name = \"parec\"\n\t\tapplication.process.binary = \"pacat\"\n\t\ttarget.object = \"dcblock_dmic\"\n\t\tstream.is-live = \"true\"\n\t\tnode.name = \"parec\"\n\t\tmedia.class = \"Stream/Input/Audio\"";
     assert!(is_mic_capture(details));
 }
 
 #[test]
 fn is_mic_capture_false_for_monitor_source_tap() {
-    // System-audio monitoring (e.g. this app's own system-audio capture, or
-    // an audio visualizer) taps a `.monitor` source, not the mic itself —
-    // shouldn't count as "someone is using the mic."
-    let details = "source: alsa_output.pci-0000_00_1f.3.analog-stereo.monitor\nmedia.class = \"Stream/Input/Audio\"";
+    // Real `parec -d <sink>.monitor` capture (system-audio monitoring, e.g.
+    // this app's own system-audio capture, or an audio visualizer). PipeWire
+    // marks these with `stream.capture.sink = "true"` -- the actual
+    // discriminator, unrelated to source *naming* (there is no source name
+    // in real pactl output at all; the field is a numeric `Source: <id>`).
+    let details = "\t\tclient.api = \"pipewire-pulse\"\n\t\tapplication.name = \"parec\"\n\t\tapplication.process.binary = \"pacat\"\n\t\ttarget.object = \"alsa_output.pci-0000_64_00.6.HiFi__hw_Generic_1__sink\"\n\t\tstream.capture.sink = \"true\"\n\t\tstream.is-live = \"true\"\n\t\tnode.name = \"parec\"\n\t\tmedia.class = \"Stream/Input/Audio\"";
     assert!(!is_mic_capture(details));
 }
 
@@ -69,4 +94,23 @@ fn extract_source_output_block_anchors_id_to_avoid_prefix_collision() {
     // Looking up a non-existent #7 should return None.
     let result = extract_source_output_block(&pactl_output, 7);
     assert!(result.is_none());
+}
+
+#[test]
+fn parse_source_output_ids_finds_every_header_in_order() {
+    // Regression coverage for the startup scan added to watch_mic_activity:
+    // it needs every currently-active source-output id, not just one, since
+    // multiple streams (this app's own pw-record capture, a genuine mic
+    // stream, a monitor tap) can all be active simultaneously when the
+    // widget launches mid-call.
+    let pactl_output = "Source Output #34\n\tProperties:\n\t\tnode.name = \"capture.dcblock_dmic\"\n\nSource Output #352\n\tProperties:\n\t\tapplication.name = \"parec\"\n\nSource Output #406\n\tProperties:\n\t\tapplication.name = \"pw-record\"\n";
+
+    assert_eq!(parse_source_output_ids(pactl_output), vec![34, 352, 406]);
+}
+
+#[test]
+fn parse_source_output_ids_empty_for_no_streams() {
+    // `pactl list source-outputs` prints nothing when no streams are active
+    // -- the startup scan must treat that as "nothing to seed," not error.
+    assert_eq!(parse_source_output_ids(""), Vec::<u32>::new());
 }
