@@ -2,6 +2,7 @@ use super::notes::{generate_notes, notes_pass_for, parse_pass_fragment};
 use async_trait::async_trait;
 use meeting_notes_core::meeting::MeetingType;
 use meeting_notes_core::summary::SummaryProvider;
+use meeting_notes_core::summary::{SummaryPass, SummaryProgress};
 use std::sync::Mutex;
 
 const ALL_TYPES: [MeetingType; 5] = [
@@ -66,7 +67,7 @@ const PASS_C: &str = r#"{"open_questions":["Who covers chat?"]}"#;
 #[tokio::test]
 async fn combines_all_three_passes_into_one_result() {
     let provider = ScriptedProvider::new(vec![PASS_A, PASS_B, PASS_C], 1000);
-    let result = generate_notes(&provider, MeetingType::AutoDetect, "a short transcript").await.expect("generate");
+    let result = generate_notes(&provider, MeetingType::AutoDetect, "a short transcript", |_| {}).await.expect("generate");
 
     assert_eq!(result.meeting_type, "Team sync");
     assert_eq!(result.topics.len(), 1);
@@ -78,14 +79,14 @@ async fn combines_all_three_passes_into_one_result() {
 #[tokio::test]
 async fn runs_exactly_three_passes_for_a_transcript_that_fits() {
     let provider = ScriptedProvider::new(vec![PASS_A, PASS_B, PASS_C], 1000);
-    generate_notes(&provider, MeetingType::AutoDetect, "one two three").await.expect("generate");
+    generate_notes(&provider, MeetingType::AutoDetect, "one two three", |_| {}).await.expect("generate");
     assert_eq!(provider.prompts.lock().unwrap().len(), 3);
 }
 
 #[tokio::test]
 async fn every_pass_prompt_carries_the_transcript() {
     let provider = ScriptedProvider::new(vec![PASS_A, PASS_B, PASS_C], 1000);
-    generate_notes(&provider, MeetingType::AutoDetect, "the distinctive transcript body").await.expect("generate");
+    generate_notes(&provider, MeetingType::AutoDetect, "the distinctive transcript body", |_| {}).await.expect("generate");
     for prompt in provider.prompts.lock().unwrap().iter() {
         assert!(
             prompt.contains("the distinctive transcript body"),
@@ -102,7 +103,7 @@ async fn chunks_a_long_transcript_and_runs_every_pass_per_chunk() {
         PASS_A, PASS_B, PASS_C, PASS_A, PASS_B, PASS_C, PASS_A, PASS_B, PASS_C,
     ];
     let provider = ScriptedProvider::new(responses, 2);
-    let result = generate_notes(&provider, MeetingType::AutoDetect, "one two three four five six").await.expect("generate");
+    let result = generate_notes(&provider, MeetingType::AutoDetect, "one two three four five six", |_| {}).await.expect("generate");
 
     assert_eq!(provider.prompts.lock().unwrap().len(), 9);
     // The same canned topic came back for every chunk and must fold to one.
@@ -111,10 +112,81 @@ async fn chunks_a_long_transcript_and_runs_every_pass_per_chunk() {
 }
 
 #[tokio::test]
+async fn reports_progress_for_each_pass_in_order() {
+    let provider = ScriptedProvider::new(vec![PASS_A, PASS_B, PASS_C], 1000);
+    let progress: Mutex<Vec<SummaryProgress>> = Mutex::new(Vec::new());
+    generate_notes(&provider, MeetingType::AutoDetect, "one two three", |p| {
+        progress.lock().unwrap().push(p);
+    })
+    .await
+    .expect("generate");
+
+    let recorded = progress.into_inner().unwrap();
+    assert_eq!(
+        recorded,
+        vec![
+            SummaryProgress { pass: SummaryPass::NotesAndSummary, chunk_index: 0, chunk_total: 1 },
+            SummaryProgress { pass: SummaryPass::ActionItems, chunk_index: 0, chunk_total: 1 },
+            SummaryProgress { pass: SummaryPass::OpenQuestions, chunk_index: 0, chunk_total: 1 },
+        ]
+    );
+}
+
+#[tokio::test]
+async fn reports_progress_for_each_chunk_when_transcript_is_split() {
+    // Same setup as chunks_a_long_transcript_and_runs_every_pass_per_chunk:
+    // budget of 2 words against a 6-word transcript gives 3 chunks.
+    let responses = vec![
+        PASS_A, PASS_B, PASS_C, PASS_A, PASS_B, PASS_C, PASS_A, PASS_B, PASS_C,
+    ];
+    let provider = ScriptedProvider::new(responses, 2);
+    let progress: Mutex<Vec<SummaryProgress>> = Mutex::new(Vec::new());
+    generate_notes(&provider, MeetingType::AutoDetect, "one two three four five six", |p| {
+        progress.lock().unwrap().push(p);
+    })
+    .await
+    .expect("generate");
+
+    let recorded = progress.into_inner().unwrap();
+    assert_eq!(recorded.len(), 9);
+    for event in &recorded {
+        assert_eq!(event.chunk_total, 3);
+    }
+    assert_eq!(
+        recorded[0],
+        SummaryProgress { pass: SummaryPass::NotesAndSummary, chunk_index: 0, chunk_total: 3 }
+    );
+    assert_eq!(
+        recorded[3],
+        SummaryProgress { pass: SummaryPass::NotesAndSummary, chunk_index: 1, chunk_total: 3 }
+    );
+    assert_eq!(
+        recorded[6],
+        SummaryProgress { pass: SummaryPass::NotesAndSummary, chunk_index: 2, chunk_total: 3 }
+    );
+}
+
+#[tokio::test]
+async fn stops_reporting_after_the_pass_that_failed() {
+    let progress: Mutex<Vec<SummaryProgress>> = Mutex::new(Vec::new());
+    let result = generate_notes(&FailingProvider, MeetingType::AutoDetect, "a transcript", |p| {
+        progress.lock().unwrap().push(p);
+    })
+    .await;
+
+    assert!(result.is_err());
+    let recorded = progress.into_inner().unwrap();
+    assert_eq!(
+        recorded,
+        vec![SummaryProgress { pass: SummaryPass::NotesAndSummary, chunk_index: 0, chunk_total: 1 }]
+    );
+}
+
+#[tokio::test]
 async fn fails_the_whole_run_when_any_pass_fails() {
     // Partial notes rendered in the standard format would look complete
     // while silently missing a section.
-    let result = generate_notes(&FailingProvider, MeetingType::AutoDetect, "a transcript").await;
+    let result = generate_notes(&FailingProvider, MeetingType::AutoDetect, "a transcript", |_| {}).await;
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("endpoint down"));
 }
@@ -122,7 +194,7 @@ async fn fails_the_whole_run_when_any_pass_fails() {
 #[tokio::test]
 async fn rejects_an_empty_transcript_before_calling_the_provider() {
     let provider = ScriptedProvider::new(vec![], 1000);
-    let result = generate_notes(&provider, MeetingType::AutoDetect, "   ").await;
+    let result = generate_notes(&provider, MeetingType::AutoDetect, "   ", |_| {}).await;
     assert!(result.is_err());
     assert!(provider.prompts.lock().unwrap().is_empty());
 }
@@ -132,7 +204,7 @@ async fn the_notes_pass_prompt_varies_by_meeting_type() {
     let mut seen: Vec<String> = Vec::new();
     for meeting_type in ALL_TYPES {
         let provider = ScriptedProvider::new(vec![PASS_A, PASS_B, PASS_C], 1000);
-        generate_notes(&provider, meeting_type, "a transcript").await.expect("generate");
+        generate_notes(&provider, meeting_type, "a transcript", |_| {}).await.expect("generate");
         // The notes pass runs first, so prompt 0 is the one that varies.
         seen.push(provider.prompts.lock().unwrap()[0].clone());
     }
@@ -151,7 +223,7 @@ async fn the_action_and_question_passes_are_shared_across_meeting_types() {
     let mut baseline: Option<(String, String)> = None;
     for meeting_type in ALL_TYPES {
         let provider = ScriptedProvider::new(vec![PASS_A, PASS_B, PASS_C], 1000);
-        generate_notes(&provider, meeting_type, "a transcript").await.expect("generate");
+        generate_notes(&provider, meeting_type, "a transcript", |_| {}).await.expect("generate");
         let prompts = provider.prompts.lock().unwrap().clone();
         let pair = (prompts[1].clone(), prompts[2].clone());
         match &baseline {
@@ -167,7 +239,7 @@ async fn every_meeting_type_accepts_the_same_response_shape() {
     // so one canned response set has to satisfy all five.
     for meeting_type in ALL_TYPES {
         let provider = ScriptedProvider::new(vec![PASS_A, PASS_B, PASS_C], 1000);
-        let result = generate_notes(&provider, meeting_type, "a transcript")
+        let result = generate_notes(&provider, meeting_type, "a transcript", |_| {})
             .await
             .unwrap_or_else(|e| panic!("{meeting_type:?} rejected the standard shape: {e}"));
         assert_eq!(result.topics.len(), 1);

@@ -1,6 +1,6 @@
 use crate::chunk::{merge_partials, split_transcript};
 use meeting_notes_core::meeting::MeetingType;
-use meeting_notes_core::summary::{SummaryProvider, SummaryResult};
+use meeting_notes_core::summary::{SummaryPass, SummaryProgress, SummaryProvider, SummaryResult};
 
 /// Shared framing describing the material every pass is reading.
 const TRANSCRIPT_CAVEAT: &str = "The text below is a raw speech-to-text transcript produced by \
@@ -203,6 +203,7 @@ Include: questions asked that nobody answered; questions the group argued over w
 /// empty section" from "the model answered a different question entirely" —
 /// checking for the owning key(s) is what catches the latter.
 struct Pass<'a> {
+    tag: SummaryPass,
     prompt: &'a str,
     required_keys: &'static [&'static str],
 }
@@ -222,25 +223,32 @@ pub async fn generate_notes(
     provider: &(dyn SummaryProvider + Send + Sync),
     meeting_type: MeetingType,
     transcript: &str,
+    on_progress: impl Fn(SummaryProgress) + Send + Sync,
 ) -> Result<SummaryResult, String> {
     let notes_prompt = notes_pass_for(meeting_type);
     let passes = [
         // The notes pass owns several fields; requiring topics and summary is
         // enough to catch a response shaped for a different prompt without
         // demanding every field (e.g. decisions is legitimately often empty).
-        Pass { prompt: notes_prompt.as_str(), required_keys: &["topics", "summary"] },
-        Pass { prompt: PASS_ACTIONS, required_keys: &["action_items"] },
-        Pass { prompt: PASS_QUESTIONS, required_keys: &["open_questions"] },
+        Pass {
+            tag: SummaryPass::NotesAndSummary,
+            prompt: notes_prompt.as_str(),
+            required_keys: &["topics", "summary"],
+        },
+        Pass { tag: SummaryPass::ActionItems, prompt: PASS_ACTIONS, required_keys: &["action_items"] },
+        Pass { tag: SummaryPass::OpenQuestions, prompt: PASS_QUESTIONS, required_keys: &["open_questions"] },
     ];
 
     let chunks = split_transcript(transcript, provider.input_budget_words());
     if chunks.is_empty() {
         return Err("transcript is empty, nothing to summarize".to_string());
     }
+    let chunk_total = chunks.len();
 
     let mut fragments = Vec::new();
-    for chunk in &chunks {
+    for (chunk_index, chunk) in chunks.iter().enumerate() {
         for pass in &passes {
+            on_progress(SummaryProgress { pass: pass.tag, chunk_index, chunk_total });
             let prompt = format!("{}\n\n{TRANSCRIPT_CAVEAT}\n\nTranscript:\n{chunk}", pass.prompt);
             let raw = provider.complete_json(&prompt).await?;
             fragments.push(parse_pass_fragment(&raw, pass.required_keys)?);

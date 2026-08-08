@@ -54,3 +54,26 @@ pub trait SummaryProvider {
     /// Longer transcripts are chunked to fit.
     fn input_budget_words(&self) -> usize;
 }
+
+/// Identifies which of `generate_notes`'s three generation passes is
+/// running, so progress can be reported to the frontend as real backend
+/// work rather than a synthetic animation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SummaryPass {
+    NotesAndSummary,
+    ActionItems,
+    OpenQuestions,
+}
+
+/// One progress notification: which pass is starting, and where it sits in
+/// the current transcript chunk sequence. Fired once per pass, immediately
+/// before that pass's LLM call -- "pass N starting" is the only signal the
+/// frontend needs, since it implies "pass N-1 just finished."
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SummaryProgress {
+    pub pass: SummaryPass,
+    /// 0-based index of the transcript chunk this pass is running against.
+    pub chunk_index: usize,
+    /// Total number of transcript chunks for this summarize run.
+    pub chunk_total: usize,
+}
