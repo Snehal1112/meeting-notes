@@ -45,3 +45,28 @@ fn is_mic_capture_false_for_monitor_source_tap() {
     let details = "source: alsa_output.pci-0000_00_1f.3.analog-stereo.monitor\nmedia.class = \"Stream/Input/Audio\"";
     assert!(!is_mic_capture(details));
 }
+
+#[test]
+fn extract_source_output_block_anchors_id_to_avoid_prefix_collision() {
+    // Regression test for the ID-prefix collision bug: looking up #4 must not
+    // match inside #42. This test confirms the newline anchor prevents the collision.
+    let pactl_output = "Source Output #4\n\tproperty = value\n\tsource: alsa_input.pci-0000_00_1f.3.analog-stereo\n\nmedia.class = Stream/Input/Audio\n\nSource Output #42\n\tproperty = value\n\tsource: alsa_output.pci-0000_00_1f.3.analog-stereo.monitor\n\nmedia.class = Stream/Input/Audio\n";
+
+    // Looking up #4 should return only the #4 block, not the #42 block.
+    let result = extract_source_output_block(&pactl_output, 4);
+    assert!(result.is_some());
+    let block = result.unwrap();
+    assert!(block.contains("Source Output #4"));
+    assert!(!block.contains("Source Output #42"));
+
+    // Looking up #42 should return only the #42 block.
+    let result = extract_source_output_block(&pactl_output, 42);
+    assert!(result.is_some());
+    let block = result.unwrap();
+    assert!(block.contains("Source Output #42"));
+    assert!(!block.contains("property = value\n\tsource: alsa_input")); // The first block's source line.
+
+    // Looking up a non-existent #7 should return None.
+    let result = extract_source_output_block(&pactl_output, 7);
+    assert!(result.is_none());
+}

@@ -25,6 +25,19 @@ pub fn is_mic_capture(details: &str) -> bool {
     details.contains("source:") && !details.contains(".monitor")
 }
 
+/// Extracts the source output block for a given ID from pactl text output.
+/// Returns None if the ID is not found. Anchors the marker with a newline
+/// to avoid ID-prefix collisions (e.g., looking up #4 must not match inside #42).
+/// This is a pure function for testability (doesn't call pactl itself).
+pub fn extract_source_output_block(text: &str, id: u32) -> Option<String> {
+    // Anchor to newline to prevent "#4" matching inside "#42".
+    let marker = format!("Source Output #{id}\n");
+    let block_start = text.find(&marker)?;
+    let rest = &text[block_start..];
+    let block_end = rest[1..].find("Source Output #").map(|i| i + 1).unwrap_or(rest.len());
+    Some(rest[..block_end].to_string())
+}
+
 /// Fetches `pactl list source-outputs` and returns the block of text for
 /// the given stream id, if it still exists (streams can end between the
 /// "new" event firing and this lookup running — treat that as "nothing to
@@ -35,11 +48,7 @@ pub fn fetch_source_output_details(id: u32) -> Option<String> {
         .output()
         .ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
-    let marker = format!("Source Output #{id}");
-    let block_start = text.find(&marker)?;
-    let rest = &text[block_start..];
-    let block_end = rest[1..].find("Source Output #").map(|i| i + 1).unwrap_or(rest.len());
-    Some(rest[..block_end].to_string())
+    extract_source_output_block(&text, id)
 }
 
 /// The combined check this task exists for: is this event genuinely
