@@ -240,13 +240,24 @@ function App() {
   // already in progress" guard lives inside RecorderWidget's own
   // triggerNewRecording effect, next to handleStart itself, rather than
   // being duplicated here from widgetState.
+  //
+  // showHistory/showConfigDialog are checked here for the same reason as
+  // the external-mic-activity effect above: RecorderWidget unmounts while
+  // either panel is open (see the render guard further down), so bumping
+  // the signal now would be silently lost -- prevTriggerNewRecordingRef
+  // would initialize to the already-bumped value on remount and never see
+  // a change. Deliberately no-op while a panel is open rather than queuing
+  // the request; the user can just click "New Recording" again once they
+  // close it.
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     (async () => {
       const stopListening = await listen("tray-new-recording", () => {
         if (cancelled) return;
-        setTrayNewRecordingSignal((n) => n + 1);
+        if (!showHistory && !showConfigDialog) {
+          setTrayNewRecordingSignal((n) => n + 1);
+        }
       });
       if (cancelled) {
         stopListening();
@@ -258,7 +269,7 @@ function App() {
       cancelled = true;
       unlisten?.();
     };
-  }, []);
+  }, [showHistory, showConfigDialog]);
 
   const handleResume = (id: string) => {
     const meeting = orphaned.find((m) => m.id === id);

@@ -708,6 +708,42 @@ describe("App tray-triggered new recording", () => {
       expect(screen.getByTestId("recorder-trigger-new-recording")).toHaveTextContent("1")
     );
   });
+
+  // Regression guard, mirroring "does not show the banner for an event that
+  // arrives while History is open" above: RecorderWidget unmounts while
+  // History is open (see App.tsx's chrome-swap render guard), so bumping the
+  // signal on an event that arrives in that window would be silently lost --
+  // prevTriggerNewRecordingRef initializes to the already-bumped value on
+  // remount and never observes a change, meaning no recording ever starts.
+  // The tray handler must no-op instead.
+  it("does not bump triggerNewRecording for a tray event that arrives while History is open", async () => {
+    render(<App />);
+    await screen.findByTestId("recorder");
+
+    fireEvent.click(screen.getByRole("button", { name: "open-history" }));
+    await screen.findByTestId("history");
+
+    trayNewRecordingListener?.();
+
+    fireEvent.click(screen.getByRole("button", { name: "history-back" }));
+
+    expect(await screen.findByTestId("recorder-trigger-new-recording")).toHaveTextContent("0");
+  });
+
+  // Same regression, via the Settings panel instead of History.
+  it("does not bump triggerNewRecording for a tray event that arrives while Settings is open", async () => {
+    render(<App />);
+    await screen.findByTestId("recorder");
+
+    fireEvent.click(screen.getByRole("button", { name: "open-settings" }));
+    await screen.findByText(/set up meeting notes/i);
+
+    trayNewRecordingListener?.();
+
+    fireEvent.click(screen.getByRole("button", { name: /skip/i }));
+
+    expect(await screen.findByTestId("recorder-trigger-new-recording")).toHaveTextContent("0");
+  });
 });
 
 describe("App click-through tracking", () => {
