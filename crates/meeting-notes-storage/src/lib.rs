@@ -130,6 +130,41 @@ pub fn delete_meeting(base: &Path, meeting_id: &str) -> std::io::Result<()> {
     save_index(base, &index)
 }
 
+/// Updates only a meeting's `status`, and optionally `duration_seconds` /
+/// `used_system_audio`, leaving every other field exactly as persisted.
+/// Unlike `update_meeting` (a full-record replace, used only with
+/// server-computed `MeetingMeta` values), this is the one exposed directly
+/// to the untrusted renderer over IPC — narrowing it to these fields means a
+/// compromised/buggy frontend can never round-trip a client-supplied title,
+/// meeting_type, or error_message back into the index.
+pub fn set_meeting_status(
+    base: &Path,
+    meeting_id: &str,
+    status: MeetingStatus,
+    duration_seconds: Option<u64>,
+    used_system_audio: Option<bool>,
+) -> std::io::Result<()> {
+    let mut index = load_index(base)?;
+    match index.iter_mut().find(|m| m.id == meeting_id) {
+        Some(entry) => {
+            entry.status = status;
+            if duration_seconds.is_some() {
+                entry.duration_seconds = duration_seconds;
+            }
+            if let Some(used_system_audio) = used_system_audio {
+                entry.used_system_audio = used_system_audio;
+            }
+        }
+        None => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("meeting {meeting_id} not found in index"),
+            ));
+        }
+    }
+    save_index(base, &index)
+}
+
 pub fn update_meeting(base: &Path, updated: &MeetingMeta) -> std::io::Result<()> {
     let mut index = load_index(base)?;
     match index.iter_mut().find(|m| m.id == updated.id) {

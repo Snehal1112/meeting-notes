@@ -18,6 +18,7 @@ import { Waveform } from "@/components/Waveform";
 import { ProviderPicker, type ProviderName } from "@/components/ProviderPicker";
 import { startWindowDrag } from "@/lib/drag";
 import { Mic, MicOff, Square, AlertTriangle } from "lucide-react";
+import { toast } from "sonner";
 
 export type WidgetState = "idle" | "recording" | "processing";
 type ProcessingStatus = "transcribing" | "summarizing";
@@ -54,6 +55,11 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
   // before every set* call so an abandoned run's result or error never
   // lands after the fact.
   const summarizeRunRef = useRef(0);
+  // Guards runTranscription against a real double-click: both native click
+  // events can dispatch before React re-renders the Retry button away, so
+  // the guard has to live outside render rather than relying on the button
+  // disappearing in time.
+  const transcriptionInFlightRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Wall-clock start time, so the elapsed timer cannot drift when ticks are throttled.
   const startedAtRef = useRef<number>(0);
@@ -104,6 +110,8 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
   // the retry path needing any cancellation concept — a retry is always
   // live, since the user just clicked it.
   const runTranscription = useCallback(async (isCancelled: () => boolean = () => false) => {
+    if (transcriptionInFlightRef.current) return;
+    transcriptionInFlightRef.current = true;
     setTranscriptionError(null);
     setProcessingStatus("transcribing");
     try {
@@ -114,6 +122,8 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
       if (isCancelled()) return;
       console.error("Transcription failed:", errorMessage(err));
       setTranscriptionError(errorMessage(err));
+    } finally {
+      transcriptionInFlightRef.current = false;
     }
   }, []);
 
@@ -158,10 +168,11 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
     } catch (err) {
       if (summarizeRunRef.current !== run) return;
       // The transcript is already on disk, so a summary failure is not data
-      // loss. There is no in-app screen to surface it on, so it's logged and
-      // the widget still returns to idle rather than being stuck on
-      // "Generating summary…" forever.
+      // loss. There is no in-app screen to surface it on, so the widget
+      // still returns to idle rather than being stuck on "Generating
+      // summary…" forever -- the toast is what tells the user it happened.
       console.error("Summary generation failed:", errorMessage(err));
+      toast.error(`Failed to generate summary: ${errorMessage(err)}`);
     } finally {
       if (summarizeRunRef.current === run) setState("idle");
     }
@@ -264,7 +275,7 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
       // crashed/interrupted session by orphan detection. Best-effort: don't
       // let a failure here mask the original error.
       if (currentMeetingRef.current) {
-        updateMeetingStatus({ ...currentMeetingRef.current, status: "Failed" }).catch((e) =>
+        updateMeetingStatus(currentMeetingRef.current.id, "Failed").catch((e) =>
           console.error("Failed to mark meeting failed:", errorMessage(e))
         );
         currentMeetingRef.current = null;
@@ -305,7 +316,12 @@ export function RecorderWidget({ resumeMeeting = null, onStateChange }: Recorder
         // re-persist them.
         currentMeetingRef.current = transcribing;
         try {
-          await updateMeetingStatus(transcribing);
+          await updateMeetingStatus(
+            transcribing.id,
+            "Transcribing",
+            elapsedSeconds,
+            transcribing.used_system_audio
+          );
         } catch (err) {
           console.error("Failed to update meeting status in index:", errorMessage(err));
         }

@@ -78,6 +78,11 @@ export function MeetingHistory({ onBack, onRetryMeeting, onContentChange }: Meet
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [dateFilter, setDateFilter] = useState<string>("all");
   const [page, setPage] = useState(1);
+  // Tracks which meetings have a re-run in flight, so a second click while
+  // one is still pending can be ignored -- summarizeMeeting is a paid LLM
+  // call, and firing two concurrently races to overwrite the same
+  // summary_result.json.
+  const [rerunningIds, setRerunningIds] = useState<Set<string>>(new Set());
 
   const loadHistory = () =>
     getMeetingHistory()
@@ -105,12 +110,20 @@ export function MeetingHistory({ onBack, onRetryMeeting, onContentChange }: Meet
   };
 
   const handleRerun = async (entry: MeetingHistoryEntry) => {
+    if (rerunningIds.has(entry.id)) return;
+    setRerunningIds((prev) => new Set(prev).add(entry.id));
     try {
       await summarizeMeeting(entry.id);
       toast.success(`Summary regenerated for "${entry.title || "Untitled meeting"}"`);
       loadHistory(); // Refresh to pick up the new snippet.
     } catch (err) {
       toast.error(`Failed to regenerate summary: ${err}`);
+    } finally {
+      setRerunningIds((prev) => {
+        const next = new Set(prev);
+        next.delete(entry.id);
+        return next;
+      });
     }
   };
 
@@ -243,6 +256,7 @@ export function MeetingHistory({ onBack, onRetryMeeting, onContentChange }: Meet
                   onOpen={() => openSummary(entry.id)}
                   onReveal={() => handleReveal(entry)}
                   onRerun={() => handleRerun(entry)}
+                  rerunning={rerunningIds.has(entry.id)}
                   onRetry={() => onRetryMeeting?.(entry)}
                   onDelete={() => handleDelete(entry)}
                 />

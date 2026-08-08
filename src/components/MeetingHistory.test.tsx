@@ -398,6 +398,30 @@ describe("MeetingHistory", () => {
 
       expect(summarizeMeeting).toHaveBeenCalledWith(entry().id);
     });
+
+    // Regression test: Re-run had no in-flight guard, so re-opening the
+    // actions menu while the first summarizeMeeting call was still pending
+    // and clicking it again fired a second concurrent LLM call racing to
+    // overwrite the same summary_result.json.
+    it("disables Re-run summarization while a previous run for that meeting is still in flight", async () => {
+      const user = userEvent.setup();
+      let resolveFirst!: () => void;
+      summarizeMeeting.mockReturnValueOnce(new Promise<void>((resolve) => (resolveFirst = resolve)));
+      getMeetingHistory.mockResolvedValue([entry()]);
+      render(<MeetingHistory onBack={() => {}} />);
+      await screen.findByText("Standup");
+
+      await user.click(screen.getByRole("button", { name: /actions/i }));
+      await user.click(await screen.findByText(/re-run summarization/i));
+      expect(summarizeMeeting).toHaveBeenCalledTimes(1);
+
+      await user.click(screen.getByRole("button", { name: /actions/i }));
+      const rerunAgain = await screen.findByText(/re-run summarization/i);
+      await user.click(rerunAgain);
+
+      expect(summarizeMeeting).toHaveBeenCalledTimes(1);
+      resolveFirst();
+    });
   });
 
   describe("Delete", () => {

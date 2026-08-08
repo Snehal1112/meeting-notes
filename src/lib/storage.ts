@@ -24,8 +24,17 @@ export interface MeetingMeta {
 export const createNewMeeting = (title: string, meetingType: MeetingType) =>
   invoke<MeetingMeta>("create_new_meeting", { title, meetingType });
 
-export const updateMeetingStatus = (meeting: MeetingMeta) =>
-  invoke<void>("update_meeting_status", { meeting });
+// Deliberately narrower than a full MeetingMeta round-trip: update_meeting
+// is only ever called with server-computed records, but this command is
+// exposed directly to the renderer over IPC, so it only carries the fields
+// this app's own recording flow legitimately owns (status, duration,
+// mic-only detection) -- never title/meeting_type/error_message.
+export const updateMeetingStatus = (
+  meetingId: string,
+  status: MeetingMeta["status"],
+  durationSeconds?: number,
+  usedSystemAudio?: boolean
+) => invoke<void>("update_meeting_status", { meetingId, status, durationSeconds, usedSystemAudio });
 
 export const getOrphanedMeetings = () => invoke<MeetingMeta[]>("get_orphaned_meetings");
 

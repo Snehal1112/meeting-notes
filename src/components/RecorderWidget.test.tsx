@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Toaster } from "sonner";
 import { RecorderWidget } from "./RecorderWidget";
 import type { MeetingMeta } from "@/lib/storage";
 
@@ -254,7 +255,10 @@ describe("RecorderWidget meeting storage integration", () => {
     fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
     await vi.waitFor(() =>
       expect(updateMeetingStatus).toHaveBeenCalledWith(
-        expect.objectContaining({ id: fakeMeeting.id, status: "Transcribing" })
+        fakeMeeting.id,
+        "Transcribing",
+        expect.any(Number),
+        expect.any(Boolean)
       )
     );
   });
@@ -267,9 +271,7 @@ describe("RecorderWidget meeting storage integration", () => {
     fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/mic busy/i);
     await vi.waitFor(() =>
-      expect(updateMeetingStatus).toHaveBeenCalledWith(
-        expect.objectContaining({ id: fakeMeeting.id, status: "Failed" })
-      )
+      expect(updateMeetingStatus).toHaveBeenCalledWith(fakeMeeting.id, "Failed")
     );
   });
 
@@ -282,7 +284,10 @@ describe("RecorderWidget meeting storage integration", () => {
     fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
     await vi.waitFor(() =>
       expect(updateMeetingStatus).toHaveBeenCalledWith(
-        expect.objectContaining({ id: fakeMeeting.id, used_system_audio: true })
+        fakeMeeting.id,
+        "Transcribing",
+        expect.any(Number),
+        true
       )
     );
   });
@@ -323,32 +328,23 @@ describe("RecorderWidget transcription integration", () => {
   });
 
   // Regression test for a bug where handleStop sent the just-computed
-  // {status: "Transcribing", duration_seconds} object to updateMeetingStatus
-  // over IPC but never wrote it back into currentMeetingRef.current. Now that
-  // transcribe_meeting only takes a meeting id (the Rust side re-fetches the
-  // rest from the index rather than trusting a client-supplied MeetingMeta),
-  // transcribeMeeting itself can no longer observe stale status/duration —
-  // so this asserts the same fresh values against updateMeetingStatus
-  // instead, the other call in this same code path that still takes the
-  // full MeetingMeta and would previously have persisted a clobbered record
-  // if currentMeetingRef were stale at the point it's called.
+  // {status: "Transcribing", duration_seconds} to updateMeetingStatus over
+  // IPC but never wrote it back into currentMeetingRef.current. Now that
+  // both transcribe_meeting and updateMeetingStatus take a meeting id
+  // instead of a client-supplied MeetingMeta (the Rust side re-fetches the
+  // rest from the index), there's no full-object argument left to clobber
+  // the index with -- but the fresh status/duration still have to make it
+  // into the narrow call's own arguments, not stale pre-stop values.
   it("passes the up-to-date status and duration to updateMeetingStatus, not the stale pre-stop meeting", async () => {
     const { updateMeetingStatus } = await import("@/lib/storage");
     render(<RecorderWidget />);
     fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
     fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
-    await vi.waitFor(() =>
-      expect(updateMeetingStatus).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: fakeMeeting.id,
-          status: "Transcribing",
-          duration_seconds: expect.any(Number),
-        })
-      )
-    );
-    const [passedMeeting] = vi.mocked(updateMeetingStatus).mock.calls[0]!;
-    expect(passedMeeting.status).not.toBe("Recording");
-    expect(passedMeeting.duration_seconds).not.toBeNull();
+    await vi.waitFor(() => expect(updateMeetingStatus).toHaveBeenCalled());
+
+    const [, status, durationSeconds] = vi.mocked(updateMeetingStatus).mock.calls[0]!;
+    expect(status).not.toBe("Recording");
+    expect(durationSeconds).not.toBeNull();
   });
 
   it("falls back to base.en when whisper_model is not configured", async () => {
@@ -561,6 +557,33 @@ describe("RecorderWidget transcription failure recovery", () => {
     consoleErrorSpy.mockRestore();
   });
 
+  // Regression test: nothing guarded Retry against a real double-click,
+  // where both native click events dispatch before React has a chance to
+  // re-render the button away -- act()'s synchronous batching here stands in
+  // for that, firing both handlers before any commit. Without a guard this
+  // fires two concurrent whisper.cpp runs racing to write the same
+  // transcript files.
+  it("does not start a second transcription on a double-click", async () => {
+    const { transcribeMeeting } = await import("@/lib/transcription");
+    vi.mocked(transcribeMeeting).mockRejectedValueOnce(new Error("whisper.cpp not found"));
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    render(<RecorderWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
+
+    const retry = await screen.findByRole("button", { name: /retry/i });
+    expect(transcribeMeeting).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      fireEvent.click(retry);
+      fireEvent.click(retry);
+    });
+
+    await vi.waitFor(() => expect(transcribeMeeting).toHaveBeenCalledTimes(2));
+    consoleErrorSpy.mockRestore();
+  });
+
   it("clears the failure and returns to Transcribing while a retry is in flight", async () => {
     const { transcribeMeeting } = await import("@/lib/transcription");
     vi.mocked(transcribeMeeting).mockRejectedValueOnce(new Error("whisper.cpp not found"));
@@ -631,7 +654,12 @@ describe("RecorderWidget summary failure fallback", () => {
     });
     vi.mocked(summarizeMeeting).mockRejectedValue(error);
 
-    render(<RecorderWidget />);
+    render(
+      <>
+        <Toaster />
+        <RecorderWidget />
+      </>
+    );
     fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
     fireEvent.click(await screen.findByRole("button", { name: /stop recording/i }));
     await vi.waitFor(() => expect(fire).toBeDefined());
@@ -654,6 +682,19 @@ describe("RecorderWidget summary failure fallback", () => {
       expect.stringContaining("not_configured")
     );
     expect(openSummary).not.toHaveBeenCalled();
+    consoleErrorSpy.mockRestore();
+  });
+
+  // Regression: a failed summary previously only reached the console, with
+  // nothing visible in the widget itself -- inconsistent with the same
+  // summarizeMeeting call failing from History (which toasts) and with the
+  // transcription failure path in this same component (which shows an
+  // inline error).
+  it("shows an error toast when summary generation fails", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await failSummaryWith(new Error("not_configured"));
+
+    expect(await screen.findByText(/failed to generate summary.*not_configured/i)).toBeInTheDocument();
     consoleErrorSpy.mockRestore();
   });
 });

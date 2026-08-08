@@ -77,6 +77,54 @@ fn update_status_persists_change() {
 }
 
 #[test]
+fn set_meeting_status_updates_status_duration_and_system_audio_leaving_other_fields_untouched() {
+    let base = tempdir().unwrap();
+    let meta = create_meeting(base.path(), "Retro", MeetingType::Retrospective).unwrap();
+    append_to_index(base.path(), &meta).unwrap();
+
+    set_meeting_status(base.path(), &meta.id, MeetingStatus::Transcribing, Some(120), Some(true))
+        .unwrap();
+
+    let index = load_index(base.path()).unwrap();
+    assert_eq!(index[0].status, MeetingStatus::Transcribing);
+    assert_eq!(index[0].duration_seconds, Some(120));
+    assert!(index[0].used_system_audio);
+    // A client-supplied title/meeting_type must never round-trip through
+    // this command — unlike update_meeting (used only with server-computed
+    // records), set_meeting_status is the one exposed directly to the
+    // untrusted renderer over IPC.
+    assert_eq!(index[0].title, "Retro");
+    assert_eq!(index[0].meeting_type, MeetingType::Retrospective);
+}
+
+#[test]
+fn set_meeting_status_leaves_duration_and_system_audio_unchanged_when_none_is_passed() {
+    let base = tempdir().unwrap();
+    let meta = create_meeting(base.path(), "Standup", MeetingType::Standup).unwrap();
+    append_to_index(base.path(), &meta).unwrap();
+    set_meeting_status(base.path(), &meta.id, MeetingStatus::Transcribing, Some(500), Some(true))
+        .unwrap();
+
+    set_meeting_status(base.path(), &meta.id, MeetingStatus::Failed, None, None).unwrap();
+
+    let index = load_index(base.path()).unwrap();
+    assert_eq!(index[0].status, MeetingStatus::Failed);
+    assert_eq!(index[0].duration_seconds, Some(500));
+    assert!(index[0].used_system_audio);
+}
+
+#[test]
+fn set_meeting_status_errors_when_id_not_found() {
+    let base = tempdir().unwrap();
+    let meta = create_meeting(base.path(), "Standup", MeetingType::AutoDetect).unwrap();
+    append_to_index(base.path(), &meta).unwrap();
+
+    let result = set_meeting_status(base.path(), "nonexistent-id", MeetingStatus::Failed, None, None);
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::NotFound);
+}
+
+#[test]
 fn load_index_errors_on_corrupt_json() {
     let base = tempdir().unwrap();
     std::fs::write(base.path().join("index.json"), "{invalid json").unwrap();

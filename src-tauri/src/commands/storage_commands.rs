@@ -1,6 +1,6 @@
 use crate::commands::resolved_base_dir;
-use meeting_notes_core::meeting::{MeetingMeta, MeetingType};
-use meeting_notes_storage::{append_to_index, create_meeting, find_orphaned_meetings, update_meeting};
+use meeting_notes_core::meeting::{MeetingMeta, MeetingStatus, MeetingType};
+use meeting_notes_storage::{append_to_index, create_meeting, find_orphaned_meetings, set_meeting_status};
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 
@@ -16,9 +16,15 @@ pub fn create_new_meeting(
 }
 
 #[tauri::command]
-pub fn update_meeting_status(meeting: MeetingMeta) -> Result<(), String> {
+pub fn update_meeting_status(
+    meeting_id: String,
+    status: MeetingStatus,
+    duration_seconds: Option<u64>,
+    used_system_audio: Option<bool>,
+) -> Result<(), String> {
     let base = resolved_base_dir()?;
-    update_meeting(&base, &meeting).map_err(|e| e.to_string())
+    set_meeting_status(&base, &meeting_id, status, duration_seconds, used_system_audio)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

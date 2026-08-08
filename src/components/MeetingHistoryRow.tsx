@@ -15,6 +15,7 @@ interface MeetingHistoryRowProps {
   onOpen: () => void;
   onReveal: () => void;
   onRerun: () => void;
+  rerunning?: boolean;
   onRetry: () => void;
   onDelete: () => void;
 }
@@ -37,6 +38,7 @@ export function MeetingHistoryRow({
   onOpen,
   onReveal,
   onRerun,
+  rerunning = false,
   onRetry,
   onDelete,
 }: MeetingHistoryRowProps) {
@@ -92,7 +94,7 @@ export function MeetingHistoryRow({
             <FolderOpen className="h-3 w-3 mr-1.5" /> Reveal in file manager
           </DropdownMenuItem>
           {!isFailed && (
-            <DropdownMenuItem onClick={onRerun}>
+            <DropdownMenuItem onClick={onRerun} disabled={rerunning}>
               <RotateCw className="h-3 w-3 mr-1.5" /> Re-run summarization
             </DropdownMenuItem>
           )}
