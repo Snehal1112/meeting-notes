@@ -160,4 +160,39 @@ describe("Waveform draw loop", () => {
     // (unsmoothed) values would show red here instead.
     expect(ctx.strokeStyle).toBe("#F59E0B");
   });
+
+  it("rotates bars to stack vertically and extend horizontally when orientation is vertical", async () => {
+    render(<Waveform active compact orientation="vertical" />);
+
+    await vi.waitFor(() => expect(ctx.stroke).toHaveBeenCalled());
+    expect(ctx.stroke).toHaveBeenCalledTimes(FREQUENCY_BIN_COUNT);
+
+    // Compact+vertical canvas is 20 wide, 90 tall (Task 1's swapped
+    // dimensions) -- confirm the DOM attributes reflect that, not the
+    // horizontal 90x20.
+    const canvas = document.querySelector("canvas");
+    expect(canvas).toHaveAttribute("width", "20");
+    expect(canvas).toHaveAttribute("height", "90");
+
+    // With FREQUENCY_BIN_COUNT=4 and canvas 20x90: barSpacing = 90/4 = 22.5,
+    // so the 4 bars' stacking position (the Y argument, since bars stack
+    // along the height axis when vertical) lands at 11.25, 33.75, 56.25,
+    // 78.75 -- each call's moveTo/lineTo Y must differ from the next by
+    // ~22.5, proving bars actually stack top-to-bottom rather than all
+    // landing on one row (which unrotated/horizontal-path bars would do,
+    // since horizontal keeps Y pinned at centerY for every bar).
+    const moveToYPositions = ctx.moveTo.mock.calls.map((call) => call[1] as number);
+    expect(moveToYPositions[0]).toBeCloseTo(11.25, 1);
+    expect(moveToYPositions[1]).toBeCloseTo(33.75, 1);
+    expect(moveToYPositions[2]).toBeCloseTo(56.25, 1);
+    expect(moveToYPositions[3]).toBeCloseTo(78.75, 1);
+
+    // Each bar's X (the amplitude/length axis when vertical) must be
+    // centered around canvas.width / 2 = 10, not stacked along X the way
+    // horizontal bars would be -- moveTo and lineTo for the same bar are
+    // symmetric around that center.
+    const [moveX0] = ctx.moveTo.mock.calls[0] as [number, number];
+    const [lineX0] = ctx.lineTo.mock.calls[0] as [number, number];
+    expect(moveX0 + lineX0).toBeCloseTo(20, 1); // symmetric around center=10 → sum is 2*10
+  });
 });

@@ -158,7 +158,7 @@ export function Waveform({ active, compact = false, orientation = "horizontal" }
       stream?.getTracks().forEach((t) => t.stop());
       audioContext?.close();
     };
-  }, [active, fftSize, minBarHeight]);
+  }, [active, fftSize, minBarHeight, orientation]);
 
   return <canvas ref={canvasRef} width={width} height={height} />;
 }
