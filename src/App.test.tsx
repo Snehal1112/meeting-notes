@@ -60,10 +60,13 @@ vi.mock("@tauri-apps/api/event", () => ({
 // path degrades to its own no-op/catch handling instead of throwing
 // "win.setSize is not a function" from inside an animation-frame callback,
 // which vitest reports as an unhandled error outside any test's try/catch.
+const setMinSize = vi.fn().mockResolvedValue(undefined);
+
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
     setFocus,
     setSize: vi.fn().mockResolvedValue(undefined),
+    setMinSize,
     innerSize: vi.fn().mockResolvedValue({ toLogical: () => ({ width: 400, height: 300 }) }),
     scaleFactor: vi.fn().mockResolvedValue(1),
   }),
@@ -207,6 +210,7 @@ beforeEach(async () => {
   micActivityListener = undefined;
   trayNewRecordingListener = undefined;
   setFocus.mockClear();
+  setMinSize.mockClear();
 });
 
 describe("App orphaned recording recovery", () => {
@@ -361,7 +365,7 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
     );
 
     // Back out of the pill: the hook must be handed sizing again, or the
-    // window would stay stuck at the pill's 60x196 on the Done/Idle screen.
+    // window would stay stuck at the pill's 224x56 on the Done/Idle screen.
     // widgetState is also passed as remeasureKey here -- distinct from
     // "recording"/"processing" above -- so this transition forces a fresh
     // measurement even though `enabled` alone doesn't change from the
@@ -376,6 +380,30 @@ describe("App keeps RecorderWidget mounted across chrome transitions", () => {
       "idle:false:false:0",
       undefined
     );
+  });
+
+  // GTK enforces a window's min-size geometry hints as a hard floor on every
+  // setSize() call, not just user-driven dragging -- confirmed by a real
+  // desktop screenshot where a smaller pill target rendered at roughly the
+  // 400x300 default size instead, because setSize was silently clamped back
+  // up toward the default previously baked into tauri.conf.json's static
+  // minWidth/minHeight at window-creation time (since removed -- this
+  // effect is now the sole owner of the window's min size). Without first
+  // relaxing the min size, the pill's resize animation below is a no-op in
+  // practice on Linux even though every setSize() call itself resolves
+  // successfully.
+  it("relaxes the window's min size before resizing into a pill, and restores it on the way out", async () => {
+    render(<App />);
+    await screen.findByTestId("recorder");
+
+    fireEvent.click(screen.getByRole("button", { name: "go-recording" }));
+    expect(setMinSize).toHaveBeenLastCalledWith(expect.objectContaining({ width: 224, height: 56 }));
+
+    fireEvent.click(screen.getByRole("button", { name: "go-processing" }));
+    expect(setMinSize).toHaveBeenLastCalledWith(expect.objectContaining({ width: 340, height: 220 }));
+
+    fireEvent.click(screen.getByRole("button", { name: "go-idle" }));
+    expect(setMinSize).toHaveBeenLastCalledWith(expect.objectContaining({ width: 400, height: 300 }));
   });
 
   // Regression test: closing the (taller) ConfigDialog back to the

@@ -21,7 +21,6 @@ to validate the concept — not tied to NumericLabs/NHe4a.
 - Due dates on action items (assignee is now in scope; due date remains
   deferred)
 - Meeting list / history browser UI
-- Settings screen (replaced by first-launch config dialog + config file/env vars)
 - Windows support
 - Meeting-platform bot integration (Zoom/Meet API) — noted as a future direction,
   not part of this build
@@ -89,10 +88,10 @@ to validate the concept — not tied to NumericLabs/NHe4a.
 ## 4. Audio Capture (Rust backend, cross-platform)
 
 `meeting-notes-audio` exposes one public API — `RecordingHandle::start(path) ->
-(Self, used_system_audio: bool)`, `.stop()`, `.output_path()` — used identically
-by every other crate and by `src-tauri`. Internally it dispatches to a
-platform-specific backend via `#[cfg(target_os = "...")]`, so nothing above this
-crate needs to know which OS it's running on.
+(Self, used_system_audio: bool)`, `.stop(denoise_mic: bool)`, `.output_path()`
+— used identically by every other crate and by `src-tauri`. Internally it
+dispatches to a platform-specific backend via `#[cfg(target_os = "...")]`, so
+nothing above this crate needs to know which OS it's running on.
 
 **Linux (Ubuntu 22.04+, PipeWire):**
 - Capture **mic input** and **system audio (monitor source)** simultaneously via
@@ -112,8 +111,19 @@ crate needs to know which OS it's running on.
   automatically on first capture attempt) and Microphone permission.
 
 **Common to both platforms:**
-- Dual-track (separate mic/system files) deferred — noted as the natural
-  foundation for future speaker diarization.
+- Mic and system audio are kept as **separate tracks** (`*.mic.wav`,
+  `*.system.wav`) before mixing, retained on disk afterward rather than
+  deleted — this dual-track capture is what makes both speaker labeling
+  ("You" vs. "Other," Section 6) and mic-only noise suppression below
+  possible without re-architecting capture itself.
+- **Noise suppression (RNNoise via `nnnoiseless`)** applied to the mic track
+  only, on `stop()`, before mixing — a resample-denoise-resample round trip
+  (16kHz capture rate ↔ RNNoise's native 48kHz) since RNNoise needs 48kHz
+  input. System audio is left untouched (it's already clean digital audio,
+  nothing to suppress). Gated by `Config.enable_noise_suppression`, on by
+  default. In-app and cross-platform, as opposed to the zero-code
+  alternative of a Linux-only PipeWire filter-chain, which was considered
+  and rejected specifically because it wouldn't help the macOS build.
 
 **Failure handling:**
 - No monitor source (Linux) / no Screen Recording permission (macOS) → fall back
@@ -212,41 +222,56 @@ No settings screen. Configuration resolved in this precedence order:
 **Window (Tauri config):**
 - Transparent, always-on-top, frameless/borderless. Window size and chrome are
   **state-dependent** rather than fixed:
-  - Idle / Done: ~400×300px card with a custom draggable title bar.
+  - Idle: content-sized card with a custom draggable title bar.
   - Recording: the window shrinks to a small pill (~224×56px) with **no title
     bar or card chrome at all** — just the floating docket (pulsing indicator,
     timer, compact waveform, icon-only stop button) on transparent space,
     draggable by its own body.
-  - Processing: same chrome-less pill treatment, slightly wider (~260×56px) —
-    spinner + status text, plus a compact provider picker (Claude/Ollama) once
-    summarization actually starts and more than one provider is configured.
+  - Processing: same chrome-less pill treatment, slightly wider/taller
+    (~300×64px) — spinner + status text, plus a compact provider picker
+    (Claude/Ollama) once summarization actually starts and more than one
+    provider is configured.
   This matches Notion's own recording/processing indicators rather than
   looking like a shrunken dialog at any point before the meeting is done.
 - This widget **is** the entire app UI for this MVP — no navigation, no meeting
   list.
 
 **Visual language:** modernized beyond shadcn's bare defaults — a defined
-spacing scale, refined typography (weight/size hierarchy for title vs. body vs.
-metadata text), subtle elevation/shadow on the floating card, and small
+spacing scale, subtle elevation/shadow on the floating card, and small
 transition/motion cues between states so it doesn't feel like a raw
-component-library scaffold.
+component-library scaffold. **Typography is monospace app-wide** (confirmed
+against a real screenshot 2026-08-05) — headings, body, and buttons all use
+the same monospace/pixel-style face, not a proportional sans-serif for
+prose with monospace reserved only for the elapsed timer as originally
+specified. Plan 20's design tokens should be reconciled against this if not
+already correct in the real `tailwind.config.js`/`index.css`.
 
-**States:**
-1. **Idle** — "Start Recording" button, optional meeting title input (defaults
-   to timestamp), **meeting type selector** (Standup / Retrospective / Feature
-   Request / Incident / Auto-detect, defaulting to Auto-detect).
+**States (3 — Done removed as of 2026-08-03):**
+1. **Idle** — unchanged: "New meeting" eyebrow label, boxed title input
+   ("Meeting title (optional)"), meeting type selector (dashed pill,
+   defaulting to Auto-detect), "Summarize with" provider toggle
+   (Ollama/Claude), Start Recording button.
 2. **Recording** — live waveform (Web Audio API `AnalyserNode`, styled per
    reference image: dot-based reactive waveform), elapsed timer, "Stop Recording"
-   button.
+   button. Unchanged since the 2026-08-01 redesign.
 3. **Processing** — sequential status text ("Transcribing…" → "Generating
-   summary…") with spinner/progress indicator, and a **provider picker** (Claude
-   / Ollama, defaulting to the auto-selected provider) shown once transcription
-   completes and before summarization is triggered.
-4. **Done** — attendees list, summary content in the Notion-style or
-   type-specific structure (whichever applies), action items as a checklist
-   (shadcn `Checkbox`, each showing an assignee when identified), a
-   **"Regenerate with [other provider]"** action, "Save & Close" / "New
-   Recording" actions, and an expandable/linked "View Transcript" (secondary,
+   summary…") with spinner/progress indicator, and a provider picker shown
+   once transcription completes when more than one provider is configured.
+   Unchanged since the 2026-08-01 redesign.
+
+**Completion flow (replaces the old Done state):** once summarization
+succeeds, the app opens the generated `summary.md` in the system's default
+handler for `.md` files (Notion, a markdown editor, whatever's associated)
+via Tauri's opener plugin, and the widget returns directly to Idle, unchanged
+from how it looked before recording started. This trades away the in-app
+interactive action-item checklist, in-app Transcript tab, and in-app
+"Regenerate with other provider" action (all become whatever the external
+editor/Notion supports) in exchange for a lighter app. No replacement UI is
+added anywhere for this pass — the opened file itself is the only feedback
+that a summary was generated.
+
+**State management:** simple hooks + Tauri `invoke` calls; no need for a state
+library at this scope.
    not the widget's main focus).
 
 **State management:** simple hooks + Tauri `invoke` calls; no need for a state
@@ -278,17 +303,88 @@ library at this scope.
 - **Frontend:** component tests for widget state transitions (idle → recording →
   processing → done).
 
+## 10.5 Feature Round 3: Global Hotkey, Notion Export, Speaker Labeling
+
+- **Global hotkey** — a system-wide shortcut (default `Ctrl+Shift+R`) toggles
+  start/stop without needing the widget focused, via Tauri's global-shortcut
+  plugin. It doesn't duplicate recording logic — it just triggers the same
+  `handleStart`/`handleStop` functions the pill's buttons already call.
+- **Copy as Notion Markdown** — the Done state can copy the current summary
+  (reflecting live-toggled action-item completion, not a stale
+  generation-time snapshot) to the clipboard as Markdown, which Notion parses
+  into real headings/checklists on paste. This surfaced a related gap:
+  action-item checkbox toggles previously only updated React state and were
+  never written back to `action_items.json` — now persisted immediately.
+- **Speaker labeling ("You" vs. "Other")** — genuine audio-based separation
+  using the mic and system-audio tracks that plans 05/15 already capture
+  separately before mixing. Whisper.cpp runs once per track instead of once
+  on the mixed file; segments are tagged and merged into one timeline by
+  timestamp. This is **not** full multi-speaker diarization — telling
+  individual other speakers apart still needs a real diarization model
+  (`pyannote.audio` or similar) and remains deferred (Section 11) as its own
+  scoping conversation, since it's a genuine new Python dependency rather
+  than a natural extension of this.
+
+## 10.6 Reopenable Settings & Configurable Storage Location
+
+- **Settings is now reachable at any time**, not just at first launch — a
+  gear icon in the title bar reopens the same `ConfigDialog` panel with
+  previously-saved values pre-filled. This naturally only works from Idle,
+  since Recording/Processing are chrome-less pills with no title bar at all.
+- `ConfigDialog` remains a deliberate inline panel, not a real modal — a
+  modal's overlay/outside-click-dismiss would fight the always-on-top
+  widget's draggable title bar (every drag would read as an outside click).
+  This constraint applies to the new Storage Location warning UI too: it's
+  an inline confirmation within the same panel, not a second modal.
+- **Storage location becomes genuinely configurable** for the first time —
+  previously hardcoded to the OS-standard data directory via
+  `directories::ProjectDirs` with no override. Changing it uses a native OS
+  folder picker (not an in-app dialog, so it doesn't interact with the
+  drag-region constraint above). If the current location already has
+  meetings, the user is warned with the exact count and choose to move them,
+  leave them in place, or cancel — never a silent data-location change.
+
+## 10.7 Surface Widget on External Mic Activity (Linux)
+
+- Detects when another application starts using the system microphone (a
+  Zoom call, a browser meeting tab) and brings the widget to the front with
+  a dismissible banner — explicitly **not** auto-starting a recording. The
+  user still has to click Start Recording; this only solves "I forgot the
+  widget existed until I was five minutes into the call."
+- Linux only for this pass, matching how audio capture itself was built
+  Linux-first before macOS.
+- Uses `pactl subscribe` in a background task, consistent with this
+  project's established pattern of shelling out to system binaries
+  (`pw-record`, `pactl`) rather than deep `pipewire-rs` integration.
+  Filters out this app's own `pw-record` process so recording with this
+  app doesn't trigger its own "mic is active" prompt on itself.
+
 ## 11. Future Directions (explicitly deferred)
 
-- Speaker diarization (audio-based; dual-track audio capture lays the
-  groundwork — text-based attendee inference is in scope now, see Section 6)
+- **Multi-speaker identity within the "Other" audio track** — plan 23 delivers
+  binary "You" vs. "Other" labeling from already-separate mic/system audio, but
+  telling individual other speakers apart (e.g. Sam's voice vs. Priya's) needs
+  a real diarization model (e.g. `pyannote.audio`), which is a Python
+  dependency and a distinct architecture addition, not a natural extension of
+  plan 23. Deliberately not bundled in — deserves its own scoping pass.
 - Due dates on action items (assignee is in scope now; due date still deferred)
-- Meeting list/history UI (data model via `index.json` already supports this)
 - Meeting-platform bot integration (Zoom/Meet API — join call, capture
   server-side)
 - Windows support
-- Settings screen (once config surface grows beyond first-launch scope)
-- Editable/correctable attendees and action items in the Done state (manual
-  fix-up when the LLM's text-based inference gets a name wrong)
-- Export summary as Markdown/copy-to-clipboard in Notion-pasteable format
+- Editable/correctable attendees and action items (manual fix-up when the
+  LLM's text-based inference gets a name wrong) — moot as an in-app Done-state
+  feature once plan 24 removes Done; would need rethinking as an external-file
+  editing workflow instead, or reconsidered if Done is ever reintroduced
 - User-defined custom meeting types beyond the built-in set
+- macOS equivalent of external mic-activity detection (Section 10.7 is
+  Linux-only via `pactl subscribe`; macOS has no equivalent without either
+  polling Core Audio's active-input-device APIs or a different detection
+  mechanism entirely — a distinct scoping conversation, not a small port)
+- Calendar integration (auto-detect an upcoming meeting, pre-fill
+  title/type/expected attendees)
+- Live/streaming transcript during recording (currently transcript only
+  appears after stopping)
+- Full-text search across past meetings (depends on the meeting list/history
+  UI existing first)
+- Pushing action items to external tools (Notion/Linear/Todoist APIs) or a
+  post-meeting email/Slack digest to attendees

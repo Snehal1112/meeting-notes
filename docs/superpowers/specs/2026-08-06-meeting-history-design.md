@@ -2,6 +2,9 @@
 
 **Date:** 2026-08-06
 **Status:** Approved, ready for implementation (Plans 27 backend + 28 frontend)
+**Plans:**
+- `docs/superpowers/plans/2026-08-06-27-meeting-history-backend.md`
+- `docs/superpowers/plans/2026-08-06-28-meeting-history-frontend.md`
 **Depends on:** Plan 22 (`summary_result.json` persistence, used for snippets),
 Plan 24 (removes Done, establishes `openPath` as the standard file-reveal
 mechanism, and is the reason this feature exists at all), Plan 25 (the
@@ -75,13 +78,28 @@ conversation that raised them.
   current shadcn versions, don't reach for it by habit)
 - `MeetingMeta` already has everything needed for title/date/type/status/
   duration — no new fields required there
+- **Snippet source field name — confirmed (2026-08-06).** Real
+  `summary_commands.rs` writes `action_items.json` with an `owner` field
+  and the broader `SummaryResult` shape does have a top-level `summary`
+  field as originally assumed; Plan 27's `extract_summary_snippet` reading
+  `summary_result.json`'s `summary` field is correct as written.
+- **`reveal_in_file_manager`'s ACL pattern — confirmed and corrected
+  (2026-08-06).** The real `open_summary` command (`storage_commands.rs`)
+  already solves this exact problem: `tauri-plugin-opener`'s `open_path`
+  IPC command is gated by a static, build-time capability scope that can't
+  extend to a runtime-configured data directory, so `open_summary` calls
+  `AppHandle::opener()` directly from a Rust command instead of routing
+  through the frontend's `openPath()`. Plan 27's Task 3 originally assumed
+  the frontend-`openPath()` approach would work for meeting folders too —
+  it wouldn't, for the same reason. Fixed to follow `open_summary`'s real
+  pattern exactly, including its `meeting_id` path-traversal validation
+  (reject empty, `/`, or `..`).
+- **`resolved_base_dir()` — confirmed to already exist** as a shared
+  helper in `storage_commands.rs`. Plan 27 now uses it directly instead of
+  the speculative `resolve_config()` + `base_dir(...)` pair the original
+  draft assumed.
 
 **Needs verification against the real repo before trusting the plans' code as-is:**
-- **Snippet source field name** — Plan 27 assumes `summary_result.json`
-  has a top-level `summary: String` field, based on fragments seen in
-  project knowledge (`attendees`, `referenced_people`, `summary`, `topics`,
-  `decisions`, `action_items`, `open_questions`). Confirm this field name
-  exactly before the snippet extraction code is trusted.
 - **Failure reason storage location** — Plan 27 guesses an `error.txt`
   file in the meeting directory. This is a genuine guess, not a confirmed
   fact — the real transcription-retry UI (referenced as already existing
@@ -97,6 +115,27 @@ conversation that raised them.
   triggering that from outside `RecorderWidget` (a prop? an event? a
   shared piece of state?) is unknown here and needs to be found in the
   real code, not invented fresh.
+
+**Found via manual review after initial drafting, since fixed in the plan text itself (2026-08-06):**
+- **Task 2's row wiring left `onRerun`/`onRetry` as literal no-op
+  placeholders** (`() => {/* Task 3 */}`) with no indication in Task 3 that
+  they needed to be connected to the handlers defined there. Implemented
+  literally as originally written, this produces exactly a silent
+  no-op button — no error, no visible effect, nothing in the terminal or
+  console. Plan 28 now has explicit inline warnings on those lines calling
+  this out, but the underlying risk (a plan whose pieces are individually
+  correct but never explicitly shown connected) is worth watching for
+  elsewhere in this project's plans too, not just here.
+- **`onReveal` had no error handling at all.** A failure from
+  `reveal_in_file_manager` would surface only as an unhandled promise
+  rejection in the webview's own DevTools console — not the terminal
+  running `bun run tauri dev`, and not any on-screen feedback. Fixed with
+  an explicit `.catch()` + `toast.error()`.
+- **Pagination's interaction with window resize was never specified or
+  tested**, only resize behavior for opening/closing History overall. Plan
+  28's Task 2 Step 5 now explicitly calls out testing resize *between
+  pages with different row counts* (shrink on a short last page, grow
+  again going back) as a distinct check from the open/close resize.
 
 **Explicitly cut from the original spec, not silently dropped:**
 - **Date filter** — the original spec asked for search + filter by

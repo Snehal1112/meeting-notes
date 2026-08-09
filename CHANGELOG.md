@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.0.2](https://github.com/Snehal1112/meeting-notes/compare/v0.0.1...v0.0.2) (2026-08-09)
+
+### Features
+
+* add date filter to meeting history ([6360316](https://github.com/Snehal1112/meeting-notes/commit/6360316485bde4ab108269547f2251b10a91a6ed))
+* add delete_meeting command ([420eadb](https://github.com/Snehal1112/meeting-notes/commit/420eadb2186ee2c569d4ae1fd44a58f2b8db19a7))
+* add delete-with-undo-toast, retry, and re-run summarization ([cf45e4d](https://github.com/Snehal1112/meeting-notes/commit/cf45e4d23eb06505843fe07fac36a6c4e3f15e78))
+* add error_message to MeetingMeta, persisted on failure ([37d90d8](https://github.com/Snehal1112/meeting-notes/commit/37d90d89a4b322ae3bbaa71a3c2821a4372c72cf))
+* add get_meeting_history command with summary snippets ([ae4724a](https://github.com/Snehal1112/meeting-notes/commit/ae4724a21fb599d54add8da28edde586acd10d6a))
+* add History icon and view shell with empty state ([6f77b41](https://github.com/Snehal1112/meeting-notes/commit/6f77b41b7d76d417820b28eb4d22db5da16649c3))
+* add onSummaryProgress event wrapper and SummaryProgress types ([2a85b5e](https://github.com/Snehal1112/meeting-notes/commit/2a85b5e38f3fd90ea463dcc0961cd94a802b6f50))
+* add reveal_in_file_manager command ([ac8bf21](https://github.com/Snehal1112/meeting-notes/commit/ac8bf218ff3937b6c3f9fc9ff69a86417a482c1a))
+* add search, filters, and paginated rows to meeting history ([99ea887](https://github.com/Snehal1112/meeting-notes/commit/99ea887dac9bab229fe0cf986ef828bd2e734822))
+* add SummaryChecklist component ([a485845](https://github.com/Snehal1112/meeting-notes/commit/a485845d371bdd4bd6f440cf74858b705215c3e5))
+* add system tray icon ([5eda439](https://github.com/Snehal1112/meeting-notes/commit/5eda4394e2a0210324a18582eefb93710c95eb3d))
+* add tray context menu with show/new-recording/quit ([f073a87](https://github.com/Snehal1112/meeting-notes/commit/f073a879c2eb1d3e5a37248de554841f85cdd86f))
+* default-sort meeting history newest-first ([8a64e5d](https://github.com/Snehal1112/meeting-notes/commit/8a64e5dc0f9e9cc225f59115cfebba470d29f8bb))
+* emit summary-progress events from summarize_meeting ([cfa303b](https://github.com/Snehal1112/meeting-notes/commit/cfa303b6d083195668c9fcee53e084cbc894779a))
+* filter external mic-capture streams from this app's own recording ([a8299d1](https://github.com/Snehal1112/meeting-notes/commit/a8299d186f93eb20020561137cdc216870360062))
+* parse pactl subscribe source-output events ([75a67ef](https://github.com/Snehal1112/meeting-notes/commit/75a67ef4a008b94563092784e965523430347959))
+* persist summary_result.json alongside summary.md/action_items.json ([bd16540](https://github.com/Snehal1112/meeting-notes/commit/bd1654012e35de8826f22385dc703088f79ede7a))
+* redesign Recording pill as a vertical capsule, matching approved A2 mockup ([5692178](https://github.com/Snehal1112/meeting-notes/commit/569217891a050dd2c644dbd3693a3ce1d129f252))
+* replace static Generating-summary text with a live per-pass checklist ([8ac9b1a](https://github.com/Snehal1112/meeting-notes/commit/8ac9b1a503c0ccb5c43cde6377213f4844f844ca))
+* report per-pass progress from generate_notes ([037a56c](https://github.com/Snehal1112/meeting-notes/commit/037a56cad2226b3615a2db9d79c5e5b708413728))
+* surface widget with dismissible banner on external mic activity (Linux) ([d246c13](https://github.com/Snehal1112/meeting-notes/commit/d246c13058ffba9a5fea89edea7d898d29149cdc))
+
+### Bug Fixes
+
+* add Dismiss to escape a stuck failed-transcription pill ([94fd384](https://github.com/Snehal1112/meeting-notes/commit/94fd384e21414fb5fe728576be3cb75ed2cc8a3b))
+* anchor source-output block matching to avoid ID-prefix collisions ([53c884a](https://github.com/Snehal1112/meeting-notes/commit/53c884ac3ab5bf67a53ee61efd0cc04b94bc935f))
+* avoid lock-across-blocking-call, kill pactl subscribe on exit, clear stale mic banner ([840b88c](https://github.com/Snehal1112/meeting-notes/commit/840b88c89615d12679f1272207682a6b8cdcd827))
+* clear stale mic banner on any transition away from idle, not just recording ([c047923](https://github.com/Snehal1112/meeting-notes/commit/c0479235fa08e47eb99339d2c39dfa2bb1b0436d))
+* close three more gaps from the architecture audit ([b246a27](https://github.com/Snehal1112/meeting-notes/commit/b246a27e8911332533276224075ced12f5ee17ea))
+* close three security/correctness gaps found in architecture audit ([b9c9ba4](https://github.com/Snehal1112/meeting-notes/commit/b9c9ba49525a75a97bf0d3d7cd420f3c9366da5c))
+* commit lockfile+docs, stop in-flight recording on exit, make tray non-fatal with declared runtime dep ([59fe249](https://github.com/Snehal1112/meeting-notes/commit/59fe249530b0a10b01bf3312404c04e754860906))
+* correct mic-capture detection against real pactl output, close remaining stale-banner path, log watcher failures, scan for in-progress mic activity at startup ([99633c1](https://github.com/Snehal1112/meeting-notes/commit/99633c1d03fd9283906e64ec3bbd5aa1c7a06c8b))
+* drop always-on-top so reveal-in-file-manager is visible ([dc26b90](https://github.com/Snehal1112/meeting-notes/commit/dc26b9039f7655fb33f99cb7ba8a534b2da261da))
+* error on zero-sample audio instead of silently writing an empty WAV ([45c06e5](https://github.com/Snehal1112/meeting-notes/commit/45c06e58e9c2379eb3a1091c28a7f4ad928d1d69))
+* exclude client-less PipeWire plumbing nodes from mic-activity detection ([768e944](https://github.com/Snehal1112/meeting-notes/commit/768e944dcfc2b1b0556bf1bab4ab08181b13e887))
+* generalize stadium_region to support a vertical (top/bottom-capped) stadium shape ([21d6819](https://github.com/Snehal1112/meeting-notes/commit/21d6819fdc0e126cbdf2eef3fbc887d81ccaeb5b))
+* re-validate existing audio.wav in recover_interrupted_recording so retry re-reports empty-recording errors instead of silently skipping ([dabc1e2](https://github.com/Snehal1112/meeting-notes/commit/dabc1e2f8af28cb446d59dec397855f9cf706aea))
+* reject empty/relative/root-like paths in count_meetings_at and migrate_meetings ([ef11003](https://github.com/Snehal1112/meeting-notes/commit/ef11003f5edc41ebb4a997c25044350750c28cec))
+* remeasure window on MeetingHistory content changes ([2506520](https://github.com/Snehal1112/meeting-notes/commit/2506520d65ef6c1b49cd56a3ca81066dc99e948d))
+* skip click-through mask for the resized Processing card, reset checklist state before rendering it ([95897ca](https://github.com/Snehal1112/meeting-notes/commit/95897cab70f2cbba3f45d19a9c7848098068a0cd))
+* suppress tray New Recording trigger while History/Settings is open ([9de5541](https://github.com/Snehal1112/meeting-notes/commit/9de554149cd4507999b991c1b46efab26bc78ffa))
+* use tauri's image-png feature instead of a redundant image crate dependency ([0c9a06f](https://github.com/Snehal1112/meeting-notes/commit/0c9a06ff54c576cfaf80bf8a7dd8bd794708d7eb))
+
 ## 0.0.1 (2026-08-07)
 
 ### Features

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Toaster } from "sonner";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { LogicalSize } from "@tauri-apps/api/dpi";
 import { TitleBar } from "@/components/TitleBar";
 import { ConfigDialog } from "@/components/ConfigDialog";
 import { RecorderWidget, type WidgetState } from "@/components/RecorderWidget";
@@ -20,7 +21,7 @@ import { setClickThroughTracking } from "@/lib/window";
 // drives this table), so a fixed size for those two states would regress the
 // config dialog's ability to grow the window taller than 300px.
 const PILL_SIZES: Record<"recording" | "processing", { width: number; height: number }> = {
-  recording: { width: 60, height: 196 },
+  recording: { width: 224, height: 56 },
   // Sized for the SummaryChecklist card (3 step rows + label + optional
   // chunk-progress line, see SummaryChecklist.tsx), not the compact single
   // line this pill originally held. Applies for the whole Processing state
@@ -120,14 +121,38 @@ function App() {
   useEffect(() => {
     if (widgetState !== "recording" && widgetState !== "processing") {
       // Leaving pill mode: invalidate any in-flight animation so it stops
-      // resizing a window that useAutoResizeWindow now owns again.
+      // resizing a window that useAutoResizeWindow now owns again, and
+      // restore the min size useAutoResizeWindow's own Idle/Done sizing
+      // assumes (400x300, matching the width/minHeight passed to
+      // useAutoResizeWindow above) -- see the pill-mode relax below for why
+      // this floor needs restoring at all. tauri.conf.json deliberately
+      // sets no static minWidth/minHeight any more -- this effect is the
+      // sole owner of the window's min size for its entire lifetime, so
+      // there's no stale WM-cached hint from window creation for a later
+      // setMinSize call to fight (see the pill-mode relax below for why
+      // that mattered).
       resizeRunRef.current++;
+      getCurrentWindow()
+        .setMinSize(new LogicalSize(400, 300))
+        .catch((err) => console.error("Could not restore window min size:", err));
       return;
     }
     const run = ++resizeRunRef.current;
     const isCancelled = () => resizeRunRef.current !== run;
     const targetSize = PILL_SIZES[widgetState];
     (async () => {
+      // GTK enforces a window's min-size geometry hints as a hard floor on
+      // every setSize() call, not just user-driven dragging -- confirmed by
+      // a real desktop screenshot where a smaller pill target rendered at
+      // roughly the 400x300 default size instead, because setSize was
+      // silently clamped back up toward the default previously baked into
+      // tauri.conf.json's static minWidth/minHeight at window-creation
+      // time. Relax it to the pill's own target size first, or the resize
+      // below is a no-op in practice despite every individual setSize()
+      // call resolving fine.
+      await getCurrentWindow()
+        .setMinSize(new LogicalSize(targetSize.width, targetSize.height))
+        .catch((err) => console.error("Could not relax window min size for pill mode:", err));
       const from = await currentWindowSize().catch((err) => {
         console.error("Could not read current window size for resize animation:", err);
         return targetSize;
