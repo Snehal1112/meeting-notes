@@ -4,8 +4,9 @@ use crate::summary::{SummaryResult, Topic};
 /// Fixed preamble explaining the limits of the transcription, so a reader
 /// knows why lines are unattributed and why some terms look wrong.
 const ASR_CAVEAT: &str = "> Note: this transcript is auto-generated (Whisper ASR) with no \
-speaker diarization, so individual lines aren't attributed to named speakers. A few terms \
-are likely mis-transcribed and are flagged below with best-guess interpretations.";
+speaker diarization, so individual lines aren't attributed to named speakers. Some terms are \
+likely mis-transcribed; where the intended term was not clear from context, the transcript's \
+own wording is kept with a best guess in square brackets.";
 
 /// Renders the notes as the meeting's `summary.md`.
 ///

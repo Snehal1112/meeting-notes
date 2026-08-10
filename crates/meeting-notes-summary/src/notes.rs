@@ -19,17 +19,24 @@ supplying anything the transcript does not support — do not invent names, role
 dates, numbers, tools, or outcomes, and do not paper over a gap with placeholder stand-ins such \
 as Unnamed speaker, Speaker 1, or the presenter. When the text genuinely does not tell you \
 something, omit it rather than fill it in; an accurate shorter answer beats a padded one.\n\n\
-Handle likely mis-transcriptions by reading through them. If the surrounding context makes the \
-intended term clear, silently use your best-guess interpretation and carry it consistently — \
-for instance, post grass in a discussion of databases is almost certainly Postgres, and a \
-garbled name that reappears in a recognizable form later should be normalized to that form. If \
-the context does not resolve a garbled term, keep it close to how it appears rather than \
-inventing a plausible-sounding replacement, and do not build a decision, action item, or \
-conclusion on top of a phrase you could not decipher.\n\n\
-Finally, write about the meeting, not about the transcript. Do not comment on audio or \
-transcription quality, do not note that speakers are unlabeled, do not narrate your own \
-uncertainty, and produce only what this particular request asks for — nothing else is needed \
-here.";
+Handle likely mis-transcriptions by reading through them. Normalize a garbled name to the \
+spelling used most often, and where an obviously-mangled common term is unambiguous from \
+context, use the intended term — post grass in a discussion of databases is Postgres. Anything \
+less certain than that keeps the transcript's own words the first time you use it, with your \
+reading in square brackets after it: a beer bowl [possibly earbud]. Never silently swap a word \
+for a more plausible-sounding one, and never add descriptive words of your own around it — a \
+reader must be able to tell what was said from what you concluded. Do not build a decision, \
+action item, or conclusion on top of a phrase you could not decipher. Keep the speakers' own \
+name for any technology, product, tool or metric even when it looks mis-transcribed \
+(electrolysis sensors, not sensors that pick up impulses); dropping the name for a generic \
+paraphrase throws away the one fact-checkable detail in the sentence.\n\n\
+Finally, write about the meeting, not about the transcript. Do not add general commentary on \
+audio or transcription quality, do not note that speakers are unlabeled, and produce only what \
+this particular request asks for. Uncertainty about a specific claim is a different thing and \
+belongs in the notes: where the transcript is fragmentary or several speakers' words run \
+together, write what the words actually support and mark what they do not. An exchange nobody \
+clearly resolves is recorded as unresolved — not as a clarification, a confirmation, or a \
+settled fact.";
 
 /// The JSON contract every notes pass shares. Only the guidance below it
 /// varies by meeting type, so `parse_pass_fragment`'s required keys, the
@@ -38,12 +45,12 @@ const NOTES_SHAPE: &str = r#"Respond with ONLY a JSON object of this exact shape
 {"meeting_type": string, "attendees": [string], "referenced_people": [string], "summary": string, "topics": [{"title": string, "points": [string]}], "decisions": [string]}
 No preamble, no markdown fences.
 
-- meeting_type: a short descriptor of THIS specific meeting, e.g. "Team sync - Q3 OKR review" or "Incident review - checkout 502s". Never a bare generic label like "Meeting" or "Discussion".
+- meeting_type: a short descriptor of THIS specific meeting, e.g. "Team sync - Q3 OKR review" or "Incident review - checkout 502s". Never a bare generic label like "Meeting" or "Discussion". Base the descriptor on what the audio shows, not on what the content is about: a live multi-party meeting has greetings, turn-taking, and people answering each other; one continuous explanatory voice is narration or a recorded talk however product-like its subject. When the setting is not evidenced, put that in the descriptor — "Recorded talk, setting unclear - brain-computer interface wearable" — rather than asserting a format such as a pitch, demo, standup, or review.
 - attendees: ONLY people whose names are actually spoken in the transcript AND who appear to be on the call — they speak, are greeted, are asked a direct question, or answer one. Copy names as spoken; do not add roles, titles or descriptions, and do not guess who "probably" attended.
 - referenced_people: named people who are talked about but not clearly present, e.g. "Priya said she'd review the PR" when Priya never speaks or responds.
 - HARD RULE for both attendees and referenced_people: if the transcript names nobody for a list, return an empty array. Never invent a placeholder like "Unnamed presenter", "Unidentified team member", "Speaker 1", "Participant A" or "Host" — a placeholder is always wrong, an empty array is always correct. Never promote a merely-mentioned name into attendees just to avoid an empty list.
-- summary: ONE dense paragraph of 4-6 sentences, longer if the meeting was substantial, covering what was discussed, why it mattered, and what came out of it. Name the people, teams and systems involved and include every concrete number stated — dates, counts, percentages, durations, versions, deadlines. Write it so someone who missed the meeting needs nothing else; vague filler sentences are a failure.
-- decisions: things the group actually settled on, one decision per entry, stating what was decided and who it applies to if said. Proposals nobody agreed to are not decisions. Use an empty array if nothing was settled.
+- summary: ONE dense paragraph of 4-6 sentences, longer if the meeting was substantial, covering what was discussed, why it mattered, and what came out of it. Name the people, teams and systems involved and include every concrete number stated — dates, counts, percentages, durations, versions, deadlines. Write it so someone who missed the meeting needs nothing else; vague filler sentences are a failure. Every number must come from the transcript, not from your own tallying. Do not report how many times something happened or was said unless a speaker gave the figure — describe it instead ("the same sentence repeats for the whole recording"), and never approximate a count with words like dozens or hundreds.
+- decisions: things the group actually settled on, one decision per entry, stating what was decided and who it applies to if said. Proposals nobody agreed to are not decisions. Use an empty array if nothing was settled. A proposal counts as settled only if the transcript shows the group taking it up — someone agreeing, or the conversation proceeding on that basis. If the transcript ends on it, or the next thing said moves elsewhere without a response, it stays a proposal and belongs in topics only. Never state something in decisions that your own topics points describe as proposed, suggested, floated, or unresolved.
 - topics: split the meeting into the real subjects covered; "title" names the subject, "points" carries the substance. Every point must be DETAILED and SPECIFIC — names, numbers, dates, direct quotes, stated reasons, and any disagreement or pushback. Aim for 4-10 points per topic. Prefer concrete detail over generalisation:
   BAD (too vague): "The team discussed API performance issues."
   GOOD: "Checkout API p95 hit 1.8s after Tuesday's deploy; Maya blamed the new pricing join, Tom pushed back that traffic doubled the same day.""#;
@@ -70,8 +77,9 @@ pub fn notes_pass_for(meeting_type: MeetingType) -> String {
 /// before meeting types existed.
 const GENERIC_GUIDANCE: &str = "You write detailed meeting notes from raw transcripts. First \
 infer what kind of meeting this was — a round of status updates, a working discussion that \
-reached decisions, a brainstorm, or a conversation with no clear structure at all — and let \
-that inference shape the topics instead of forcing a template onto it. Use one topic per \
+reached decisions, a brainstorm, narration or a recorded talk from one continuous speaker, or a \
+conversation with no clear structure at all — and let that inference shape the topics instead \
+of forcing a template onto it. Use one topic per \
 distinct subject in the order it was first raised, starting a new topic when the subject \
 changes rather than when the speaker changes, and folding a subject the group drifted back to \
 later into its existing topic instead of repeating it. Title each topic with the actual \
@@ -184,11 +192,11 @@ No preamble, no markdown fences.
 Scan the whole transcript, start to end — tasks are scattered through the discussion, not gathered at the end.
 
 A task is anything someone committed to do, was asked to do, or the group agreed needs doing.
-Include implied tasks: a stated intention, suggestion or agreed need counts even when nobody was assigned. "We should add X to the agenda" becomes "Add X to the agenda"; "that's still broken and we can't ship like that" becomes "Fix X". Watch for follow-ups dropped mid-sentence — offers to send, check, chase, book, write up or look into something.
+Include implied tasks, but only where someone actually proposed doing something: a stated intention, an offer, or a need the group agreed on counts even when nobody was assigned. "We should add X to the agenda" becomes "Add X to the agenda". A problem being reported, discussed, or theorised about is not a task. Record the follow-up somebody actually named — "Reach out to the customer about the naming issue", "Check whether staging and production run the same version" — never a repair nobody committed to, such as "Fix the naming issue". Watch for follow-ups dropped mid-sentence — offers to send, check, chase, book, write up or look into something.
 Write "text" as one imperative task starting with a verb, specific enough to act on without reading the transcript: keep the names, numbers, systems, dates and deadlines that were actually said. One task per item — do not bundle two tasks into one line or split one task across two.
 Leave out work already finished, and discussion or opinion that carried no follow-up.
-"owner" is the person the transcript itself attaches to that task — they said they would do it, or someone named them. Otherwise null. Never guess an owner from role, seniority, expertise, who was talking, or whose topic it was, and never invent a placeholder name. When it is not clearly stated, null is the correct answer; a wrong owner is worse than no owner. An unowned task is still a task — always keep it.
-Be thorough. Transcripts usually hold more follow-ups than a quick pass finds, so re-read for the ones stated in passing: aim for 5-8 items when the material supports it, and more when there genuinely are more. Return an empty array only if the transcript truly contains no follow-up of any kind."#;
+"owner" is the person the transcript itself attaches to that task — they said they would do it, or someone named them. Otherwise null. Raising the problem, proposing the idea, or offering the hypothesis the task came out of is not ownership — when a task derives from a suggestion made to the group rather than a commitment by one person, the owner is null. Never guess an owner from role, seniority, expertise, who was talking, or whose topic it was, and never invent a placeholder name. When it is not clearly stated, null is the correct answer; a wrong owner is worse than no owner. An unowned task is still a task — always keep it.
+Be thorough. Transcripts usually hold more follow-ups than a quick pass finds, so re-read for the ones stated in passing. Do not pad the list toward a target count — return exactly what the transcript supports, and an empty array if it contains no follow-up of any kind."#;
 
 /// Pass C: open questions, asked for on its own for the same reason as B.
 const PASS_QUESTIONS: &str = r#"Extract the unresolved questions from this meeting transcript: things raised but left unanswered, and things the group considered but explicitly did not settle on. A question belongs here only if the transcript leaves it hanging — not every question someone says out loud is an open question. Respond with ONLY a JSON object of this exact shape:
