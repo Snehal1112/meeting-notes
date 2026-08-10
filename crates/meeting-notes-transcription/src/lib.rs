@@ -1,28 +1,106 @@
 use meeting_notes_core::transcript::{TranscriptResult, TranscriptSegment};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Locates the whisper.cpp CLI binary. Checks the `MEETING_NOTES_WHISPER_BIN`
-/// env var override first, then falls back to the bare name "whisper-cli",
-/// which relies on it being resolvable via the process's PATH.
-/// TODO: packaged builds need this resolved via Tauri's resource directory,
-/// not yet implemented.
-fn whisper_binary_path() -> String {
-    std::env::var("MEETING_NOTES_WHISPER_BIN").unwrap_or_else(|_| "whisper-cli".to_string())
+/// Ordered, most-specific-first list of absolute paths where an installed
+/// whisper.cpp CLI binary might live. A bare `"whisper-cli"` only resolves
+/// via the process's `PATH`, which works for `bun run tauri dev` (inherits
+/// the launching shell's PATH) but not a deb-installed app launched from the
+/// desktop session — that session's PATH doesn't include `~/.local/bin`.
+fn whisper_binary_candidates(home: Option<&Path>) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(home) = home {
+        candidates.push(home.join(".local/bin/whisper-cli"));
+        candidates.push(home.join(".local/lib/whisper.cpp/whisper-cli"));
+    }
+    candidates.push(PathBuf::from("/usr/local/bin/whisper-cli"));
+    candidates.push(PathBuf::from("/usr/bin/whisper-cli"));
+    candidates
 }
 
-/// Runs whisper.cpp on `audio_path` using the given model name.
-///
-/// Resolves the model at the relative path `models/ggml-{model}.bin`, so the
-/// caller's process working directory must be `src-tauri/` (true for the app
-/// when launched via `bun run tauri dev`/the built binary). Callers running
-/// from elsewhere (e.g. tests invoked from a different crate directory) must
-/// `std::env::set_current_dir` into `src-tauri/` first.
-pub fn run_whisper(audio_path: &Path, model: &str) -> Result<TranscriptResult, String> {
-    let model_path = format!("models/ggml-{model}.bin");
+fn resolve_whisper_binary(
+    env_override: Option<String>,
+    home: Option<&Path>,
+    exists: impl Fn(&Path) -> bool,
+) -> String {
+    if let Some(path) = env_override {
+        return path;
+    }
+    match whisper_binary_candidates(home).into_iter().find(|p| exists(p)) {
+        Some(found) => found.to_string_lossy().into_owned(),
+        None => "whisper-cli".to_string(),
+    }
+}
+
+/// Locates the whisper.cpp CLI binary: the `MEETING_NOTES_WHISPER_BIN` env
+/// var override first, then well-known install locations, then a bare
+/// `"whisper-cli"` for PATH resolution as a last resort.
+fn whisper_binary_path() -> String {
+    resolve_whisper_binary(
+        std::env::var("MEETING_NOTES_WHISPER_BIN").ok(),
+        std::env::var_os("HOME").as_deref().map(Path::new),
+        |p| p.is_file(),
+    )
+}
+
+/// Ordered, most-specific-first list of directories to search for whisper.cpp
+/// ggml model files: the app's own data directory first, then a `models/`
+/// directory relative to the current working directory (dev convenience —
+/// true for `bun run tauri dev`, not guaranteed for a deb-installed binary
+/// launched from the desktop session).
+fn whisper_model_dir_candidates(data_dir: Option<&Path>) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(data_dir) = data_dir {
+        candidates.push(data_dir.join("models"));
+    }
+    candidates.push(PathBuf::from("models"));
+    candidates
+}
+
+fn resolve_whisper_model_path(
+    model: &str,
+    env_override: Option<String>,
+    data_dir: Option<&Path>,
+    exists: impl Fn(&Path) -> bool,
+) -> PathBuf {
+    let filename = format!("ggml-{model}.bin");
+    if let Some(dir) = env_override {
+        return PathBuf::from(dir).join(&filename);
+    }
+    let candidates = whisper_model_dir_candidates(data_dir);
+    candidates
+        .iter()
+        .map(|dir| dir.join(&filename))
+        .find(|p| exists(p))
+        .unwrap_or_else(|| candidates[0].join(&filename))
+}
+
+/// Locates the whisper.cpp ggml model file: the `MEETING_NOTES_WHISPER_MODEL_DIR`
+/// env var override first, then `data_dir` (the caller's already-resolved app
+/// data directory — respects the user's configured Storage Location, if any),
+/// then a `models/` directory relative to the current working directory.
+fn whisper_model_path(model: &str, data_dir: Option<&Path>) -> PathBuf {
+    resolve_whisper_model_path(
+        model,
+        std::env::var("MEETING_NOTES_WHISPER_MODEL_DIR").ok(),
+        data_dir,
+        |p| p.is_file(),
+    )
+}
+
+/// Runs whisper.cpp on `audio_path` using the given model name. `data_dir` is
+/// the caller's already-resolved app data directory (see `whisper_model_path`) —
+/// pass `None` only when no such directory is available.
+pub fn run_whisper(
+    audio_path: &Path,
+    model: &str,
+    data_dir: Option<&Path>,
+) -> Result<TranscriptResult, String> {
+    let binary = whisper_binary_path();
+    let model_path = whisper_model_path(model, data_dir);
     let output_base = audio_path.with_extension(""); // whisper.cpp appends .json itself
 
-    let status = Command::new(whisper_binary_path())
+    let status = Command::new(&binary)
         .arg("-m")
         .arg(&model_path)
         .arg("-f")
@@ -31,7 +109,12 @@ pub fn run_whisper(audio_path: &Path, model: &str) -> Result<TranscriptResult, S
         .arg("-of")
         .arg(&output_base)
         .status()
-        .map_err(|e| format!("failed to spawn whisper.cpp: {e}"))?;
+        .map_err(|e| {
+            format!(
+                "failed to spawn whisper.cpp at \"{binary}\": {e} \
+                 (install it or set MEETING_NOTES_WHISPER_BIN)"
+            )
+        })?;
 
     if !status.success() {
         return Err(format!("whisper.cpp exited with status {status}"));

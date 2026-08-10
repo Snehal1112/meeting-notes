@@ -1,44 +1,169 @@
 use super::*;
 
-/// Restores the process's original working directory on drop, including on
-/// the panic/unwind path (e.g. an `expect` failure), so a CWD mutation made by
-/// one test can't leak into any other test that might run in the same binary.
-struct CwdGuard(std::path::PathBuf);
+#[test]
+fn whisper_binary_candidates_checks_home_then_system_paths_in_order() {
+    let home = Path::new("/home/alice");
 
-impl CwdGuard {
-    fn new() -> Self {
-        Self(std::env::current_dir().expect("current dir should be readable"))
-    }
-}
+    let candidates = whisper_binary_candidates(Some(home));
 
-impl Drop for CwdGuard {
-    fn drop(&mut self) {
-        let _ = std::env::set_current_dir(&self.0);
-    }
+    assert_eq!(
+        candidates,
+        vec![
+            PathBuf::from("/home/alice/.local/bin/whisper-cli"),
+            PathBuf::from("/home/alice/.local/lib/whisper.cpp/whisper-cli"),
+            PathBuf::from("/usr/local/bin/whisper-cli"),
+            PathBuf::from("/usr/bin/whisper-cli"),
+        ]
+    );
 }
 
 #[test]
-#[ignore] // requires a bundled whisper.cpp binary + model on the dev machine
+fn whisper_binary_candidates_skips_home_paths_when_home_unknown() {
+    let candidates = whisper_binary_candidates(None);
+
+    assert_eq!(
+        candidates,
+        vec![
+            PathBuf::from("/usr/local/bin/whisper-cli"),
+            PathBuf::from("/usr/bin/whisper-cli"),
+        ]
+    );
+}
+
+#[test]
+fn resolve_whisper_binary_prefers_env_override_over_everything() {
+    let resolved = resolve_whisper_binary(
+        Some("/custom/whisper-cli".to_string()),
+        Some(Path::new("/home/alice")),
+        |_| true, // even if candidates "exist", the override wins
+    );
+
+    assert_eq!(resolved, "/custom/whisper-cli");
+}
+
+#[test]
+fn resolve_whisper_binary_finds_first_existing_candidate() {
+    let resolved = resolve_whisper_binary(None, Some(Path::new("/home/alice")), |p| {
+        p == Path::new("/home/alice/.local/lib/whisper.cpp/whisper-cli")
+    });
+
+    assert_eq!(resolved, "/home/alice/.local/lib/whisper.cpp/whisper-cli");
+}
+
+#[test]
+fn resolve_whisper_binary_falls_back_to_bare_name_when_nothing_found() {
+    let resolved = resolve_whisper_binary(None, Some(Path::new("/home/alice")), |_| false);
+
+    assert_eq!(resolved, "whisper-cli");
+}
+
+#[test]
+fn resolve_whisper_model_path_prefers_env_override() {
+    let resolved = resolve_whisper_model_path(
+        "base.en",
+        Some("/custom/models".to_string()),
+        Some(Path::new("/home/alice/.local/share/meeting-notes")),
+        |_| true,
+    );
+
+    assert_eq!(resolved, PathBuf::from("/custom/models/ggml-base.en.bin"));
+}
+
+#[test]
+fn resolve_whisper_model_path_prefers_data_dir_when_model_exists_there() {
+    let data_dir = Path::new("/home/alice/.local/share/meeting-notes");
+
+    let resolved = resolve_whisper_model_path("base.en", None, Some(data_dir), |p| {
+        p == Path::new("/home/alice/.local/share/meeting-notes/models/ggml-base.en.bin")
+    });
+
+    assert_eq!(
+        resolved,
+        PathBuf::from("/home/alice/.local/share/meeting-notes/models/ggml-base.en.bin")
+    );
+}
+
+#[test]
+fn resolve_whisper_model_path_falls_back_to_cwd_relative_when_nothing_found_in_data_dir() {
+    let data_dir = Path::new("/home/alice/.local/share/meeting-notes");
+
+    let resolved = resolve_whisper_model_path("base.en", None, Some(data_dir), |p| {
+        p == Path::new("models/ggml-base.en.bin")
+    });
+
+    assert_eq!(resolved, PathBuf::from("models/ggml-base.en.bin"));
+}
+
+#[test]
+fn resolve_whisper_model_path_defaults_to_data_dir_when_nothing_exists_anywhere() {
+    let data_dir = Path::new("/home/alice/.local/share/meeting-notes");
+
+    let resolved = resolve_whisper_model_path("base.en", None, Some(data_dir), |_| false);
+
+    assert_eq!(
+        resolved,
+        PathBuf::from("/home/alice/.local/share/meeting-notes/models/ggml-base.en.bin")
+    );
+}
+
+#[test]
+fn resolve_whisper_model_path_defaults_to_cwd_relative_when_data_dir_unknown() {
+    let resolved = resolve_whisper_model_path("base.en", None, None, |_| false);
+
+    assert_eq!(resolved, PathBuf::from("models/ggml-base.en.bin"));
+}
+
+#[test]
+fn whisper_model_path_uses_the_caller_supplied_data_dir_not_a_hardcoded_default() {
+    // Simulates a user who configured a custom Storage Location (data_dir):
+    // the resolved model path must follow that override, not silently fall
+    // back to the OS-default `~/.local/share/meeting-notes`.
+    let data_dir = Path::new("/home/alice/data/rocket/notes");
+
+    let resolved = whisper_model_path("base.en", Some(data_dir));
+
+    assert_eq!(
+        resolved,
+        PathBuf::from("/home/alice/data/rocket/notes/models/ggml-base.en.bin")
+    );
+}
+
+#[test]
+#[ignore] // requires an installed whisper.cpp binary + model on the dev machine
 fn transcribes_a_short_sample_wav() {
-    // `cargo test` runs this binary with its CWD set to this crate's own
-    // directory (crates/meeting-notes-transcription), but run_whisper resolves
-    // the model at the relative path "models/ggml-{model}.bin". Canonicalize the
-    // fixture path first, then switch CWD to src-tauri/ (where the bundled
-    // model actually lives) before invoking run_whisper. The guard restores the
-    // original CWD when it goes out of scope, even if a panic unwinds through.
-    let _cwd_guard = CwdGuard::new();
+    // No CWD or env var setup needed: run_whisper resolves the whisper-cli
+    // binary via whisper_binary_path's auto-discovery (well-known install
+    // locations), the same as a real deb-installed, desktop-launched app.
+    // data_dir mirrors what a real caller passes when the user hasn't
+    // configured a custom Storage Location: the OS default data directory,
+    // where the model fixture for this test is expected to live.
     let sample = std::path::Path::new("../../test-fixtures/jfk.wav")
         .canonicalize()
         .expect("sample fixture should exist");
-    std::env::set_current_dir("../../src-tauri").expect("src-tauri dir should exist");
+    let home = std::env::var("HOME").expect("HOME should be set");
+    let data_dir = std::path::PathBuf::from(home).join(".local/share/meeting-notes");
 
-    let result = run_whisper(&sample, "base.en").expect("transcription should succeed");
+    let result =
+        run_whisper(&sample, "base.en", Some(&data_dir)).expect("transcription should succeed");
 
     // Clean up the whisper.cpp json artifact written next to the fixture.
     let _ = std::fs::remove_file(sample.with_extension("json"));
 
     assert!(!result.segments.is_empty());
     assert!(result.segments[0].text.to_lowercase().contains("country"));
+}
+
+#[test]
+fn run_whisper_error_names_the_resolved_binary_and_hints_at_the_override() {
+    unsafe { std::env::set_var("MEETING_NOTES_WHISPER_BIN", "/definitely/does/not/exist/whisper-cli") };
+
+    let result = run_whisper(Path::new("/tmp/does-not-matter.wav"), "base.en", None);
+
+    unsafe { std::env::remove_var("MEETING_NOTES_WHISPER_BIN") };
+
+    let err = result.expect_err("spawning a nonexistent binary should fail");
+    assert!(err.contains("/definitely/does/not/exist/whisper-cli"), "{err}");
+    assert!(err.contains("MEETING_NOTES_WHISPER_BIN"), "{err}");
 }
 
 #[test]

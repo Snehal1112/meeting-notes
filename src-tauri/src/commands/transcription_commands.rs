@@ -97,10 +97,13 @@ async fn run_transcription(
     let meeting_dir = meeting.dir_path(base);
     ensure_final_audio(&meeting_dir)?;
     let audio_path = meeting_dir.join("audio.wav");
+    let data_dir = base.to_path_buf();
 
-    let result = tauri::async_runtime::spawn_blocking(move || run_whisper(&audio_path, &whisper_model))
-        .await
-        .map_err(|e| e.to_string())??;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        run_whisper(&audio_path, &whisper_model, Some(&data_dir))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
 
     save_transcript(&meeting_dir, &result).map_err(|e| e.to_string())?;
 
