@@ -74,10 +74,41 @@ pub fn load_from_file() -> Config {
     let Some(path) = config_file_path() else {
         return Config::default();
     };
-    let Ok(contents) = std::fs::read_to_string(&path) else {
+    load_from_path(&path)
+}
+
+/// Does the actual read. Split out from `load_from_file` so tests can point it
+/// at a temp file instead of the developer's real config path.
+fn load_from_path(path: &std::path::Path) -> Config {
+    let Ok(contents) = std::fs::read_to_string(path) else {
         return Config::default();
     };
-    toml::from_str(&contents).unwrap_or_default()
+    match toml::from_str(&contents) {
+        Ok(config) => config,
+        Err(e) => {
+            // A parse error used to degrade to an empty Config, which is
+            // indistinguishable from "no file at all" -- and the next
+            // set_summary_provider click does load-file/set-one-field/
+            // save-file, so it overwrote the whole file. That silently
+            // destroyed claude_api_key and data_dir, and data_dir has no
+            // environment fallback, so the symptom was every meeting
+            // vanishing from History. Move the file aside first: the user's
+            // values survive the overwrite and can be edited back.
+            eprintln!(
+                "meeting-notes: {} is not valid TOML ({e}); moving it to config.toml.bak and \
+                 starting from defaults",
+                path.display()
+            );
+            let backup = path.with_extension("toml.bak");
+            if let Err(e) = std::fs::rename(path, &backup) {
+                eprintln!(
+                    "meeting-notes: could not back up {} ({e}); leaving it in place",
+                    path.display()
+                );
+            }
+            Config::default()
+        }
+    }
 }
 
 pub fn resolve_config() -> Config {

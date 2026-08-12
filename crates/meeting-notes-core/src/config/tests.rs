@@ -120,16 +120,77 @@ fn load_from_file_does_not_pick_up_environment_values() {
     unsafe { std::env::remove_var("MEETING_NOTES_CLAUDE_API_KEY") };
 }
 
-#[test]
-fn save_to_path_writes_the_file_with_owner_only_permissions() {
-    let dir = std::env::temp_dir().join(format!(
+/// A unique temp directory per call, so concurrently-running tests never
+/// share a config path.
+fn temp_config_dir() -> std::path::PathBuf {
+    std::env::temp_dir().join(format!(
         "meeting-notes-config-test-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos()
-    ));
+    ))
+}
+
+#[test]
+fn load_from_path_reads_a_valid_file() {
+    let dir = temp_config_dir();
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("config.toml");
+    std::fs::write(&path, "claude_api_key = \"sk-file-key\"\n").unwrap();
+
+    let loaded = load_from_path(&path);
+
+    assert_eq!(loaded.claude_api_key, Some("sk-file-key".to_string()));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// The data-loss guard: a hand-edited config.toml with a typo must not
+/// silently become an empty Config, because the next set_summary_provider
+/// write would then overwrite the user's unrecoverable claude_api_key and
+/// data_dir with defaults.
+#[test]
+fn load_from_path_backs_up_a_malformed_file_instead_of_discarding_it() {
+    let dir = temp_config_dir();
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("config.toml");
+    // Unterminated string: a realistic hand-edit typo.
+    let original = "claude_api_key = \"sk-file-key\ndata_dir = \"/mnt/meetings\"\n";
+    std::fs::write(&path, original).unwrap();
+
+    let loaded = load_from_path(&path);
+
+    assert_eq!(loaded, Config::default(), "should fall back to defaults");
+    assert!(!path.exists(), "the malformed file should have been moved");
+    let backup = dir.join("config.toml.bak");
+    assert_eq!(
+        std::fs::read_to_string(&backup).expect("backup should exist"),
+        original,
+        "the backup must preserve the user's values verbatim"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn load_from_path_returns_defaults_for_a_missing_file_without_writing_a_backup() {
+    let dir = temp_config_dir();
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("config.toml");
+
+    let loaded = load_from_path(&path);
+
+    assert_eq!(loaded, Config::default());
+    assert!(
+        !dir.join("config.toml.bak").exists(),
+        "no file to back up, so no backup should be written"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn save_to_path_writes_the_file_with_owner_only_permissions() {
+    let dir = temp_config_dir();
     let path = dir.join("config.toml");
     let config = Config {
         claude_api_key: Some("sk-test".into()),
