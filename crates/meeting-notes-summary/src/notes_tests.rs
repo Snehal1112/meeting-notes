@@ -17,6 +17,11 @@ const ALL_TYPES: [MeetingType; 5] = [
 struct ScriptedProvider {
     responses: Mutex<Vec<String>>,
     prompts: Mutex<Vec<String>>,
+    /// The three prompt parts as given to `complete_json`, kept apart
+    /// (instead of flattened into `prompts`) so tests can verify the
+    /// prompt-caching invariant: `system` and `transcript` must be
+    /// byte-identical across a chunk's passes, while `task` varies.
+    calls: Mutex<Vec<(String, String, String)>>,
     budget: usize,
 }
 
@@ -25,6 +30,7 @@ impl ScriptedProvider {
         ScriptedProvider {
             responses: Mutex::new(responses.iter().rev().map(|s| s.to_string()).collect()),
             prompts: Mutex::new(Vec::new()),
+            calls: Mutex::new(Vec::new()),
             budget,
         }
     }
@@ -37,6 +43,10 @@ impl SummaryProvider for ScriptedProvider {
     }
     async fn complete_json(&self, system: &str, transcript: &str, task: &str) -> Result<String, String> {
         self.prompts.lock().unwrap().push(format!("{system}\n\n{transcript}\n\n{task}"));
+        self.calls
+            .lock()
+            .unwrap()
+            .push((system.to_string(), transcript.to_string(), task.to_string()));
         self.responses
             .lock()
             .unwrap()
@@ -81,6 +91,39 @@ async fn runs_exactly_three_passes_for_a_transcript_that_fits() {
     let provider = ScriptedProvider::new(vec![PASS_A, PASS_B, PASS_C], 1000);
     generate_notes(&provider, MeetingType::AutoDetect, "one two three", |_| {}).await.expect("generate");
     assert_eq!(provider.prompts.lock().unwrap().len(), 3);
+}
+
+#[tokio::test]
+async fn system_and_transcript_are_identical_across_a_chunks_three_passes_but_task_varies() {
+    // This is the entire precondition for Anthropic prompt caching to hit
+    // across a chunk's 3 passes: `system` and `transcript` must be
+    // byte-identical call to call, while `task` (the pass-specific
+    // instruction) must differ every time. `generate_notes` hoists `system`
+    // above the chunk loop and `transcript_block` above the per-chunk pass
+    // loop, building both once per chunk and reusing them for all 3 passes;
+    // if either were rebuilt inside the pass loop (e.g. with a
+    // pass-specific suffix, or non-deterministic formatting), this test
+    // would catch it as a mismatch between calls[0] and calls[1]/calls[2].
+    //
+    // This transcript fits in one chunk (budget 1000 words), so exactly 3
+    // calls happen and the check below is "identical within the one chunk
+    // we have" -- the real invariant is "identical within a chunk", not
+    // "identical globally"; a second chunk is expected (and fine) to carry
+    // a different transcript block than the first.
+    let provider = ScriptedProvider::new(vec![PASS_A, PASS_B, PASS_C], 1000);
+    generate_notes(&provider, MeetingType::AutoDetect, "one two three", |_| {}).await.expect("generate");
+
+    let calls = provider.calls.lock().unwrap();
+    assert_eq!(calls.len(), 3);
+
+    assert_eq!(calls[0].0, calls[1].0, "system differed between pass 1 and pass 2");
+    assert_eq!(calls[1].0, calls[2].0, "system differed between pass 2 and pass 3");
+
+    assert_eq!(calls[0].1, calls[1].1, "transcript differed between pass 1 and pass 2");
+    assert_eq!(calls[1].1, calls[2].1, "transcript differed between pass 2 and pass 3");
+
+    assert_ne!(calls[0].2, calls[1].2, "task did not vary between pass 1 and pass 2");
+    assert_ne!(calls[1].2, calls[2].2, "task did not vary between pass 2 and pass 3");
 }
 
 #[tokio::test]
