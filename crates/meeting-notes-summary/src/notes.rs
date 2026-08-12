@@ -72,14 +72,18 @@ pub fn notes_pass_for(meeting_type: MeetingType) -> String {
     format!("{guidance}\n\n{NOTES_SHAPE}")
 }
 
+/// The shared persona line, sent once as part of the cached `system` prompt
+/// (see `ClaudeProvider::build_request_body`) rather than repeated inside
+/// every meeting-type guidance const.
+const SYSTEM_PERSONA: &str = "You write detailed meeting notes from raw transcripts.";
+
 /// The user did not commit to a kind of meeting, so the model infers the
 /// structure from the content. This is the behaviour every meeting had
 /// before meeting types existed.
-const GENERIC_GUIDANCE: &str = "You write detailed meeting notes from raw transcripts. First \
-infer what kind of meeting this was — a round of status updates, a working discussion that \
-reached decisions, a brainstorm, narration or a recorded talk from one continuous speaker, or a \
-conversation with no clear structure at all — and let that inference shape the topics instead \
-of forcing a template onto it. Use one topic per \
+const GENERIC_GUIDANCE: &str = "First infer what kind of meeting this was — a round of status \
+updates, a working discussion that reached decisions, a brainstorm, narration or a recorded \
+talk from one continuous speaker, or a conversation with no clear structure at all — and let \
+that inference shape the topics instead of forcing a template onto it. Use one topic per \
 distinct subject in the order it was first raised, starting a new topic when the subject \
 changes rather than when the speaker changes, and folding a subject the group drifted back to \
 later into its existing topic instead of repeating it. Title each topic with the actual \
@@ -252,13 +256,14 @@ pub async fn generate_notes(
         return Err("transcript is empty, nothing to summarize".to_string());
     }
     let chunk_total = chunks.len();
+    let system = format!("{SYSTEM_PERSONA}\n\n{TRANSCRIPT_CAVEAT}");
 
     let mut fragments = Vec::new();
     for (chunk_index, chunk) in chunks.iter().enumerate() {
+        let transcript_block = format!("Transcript:\n{chunk}");
         for pass in &passes {
             on_progress(SummaryProgress { pass: pass.tag, chunk_index, chunk_total });
-            let prompt = format!("{}\n\n{TRANSCRIPT_CAVEAT}\n\nTranscript:\n{chunk}", pass.prompt);
-            let raw = provider.complete_json(&prompt).await?;
+            let raw = provider.complete_json(&system, &transcript_block, pass.prompt).await?;
             fragments.push(parse_pass_fragment(&raw, pass.required_keys)?);
         }
     }

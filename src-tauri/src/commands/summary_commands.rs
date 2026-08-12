@@ -337,7 +337,7 @@ mod tests {
             fn input_budget_words(&self) -> usize {
                 1000
             }
-            async fn complete_json(&self, _prompt: &str) -> Result<String, String> {
+            async fn complete_json(&self, _system: &str, _transcript: &str, _task: &str) -> Result<String, String> {
                 Ok(r#"{"meeting_type":"Sync","attendees":[],"referenced_people":[],"summary":"s",
 "topics":[],"decisions":[],"action_items":[],"open_questions":[]}"#
                     .to_string())

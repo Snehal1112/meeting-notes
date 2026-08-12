@@ -94,12 +94,8 @@ impl SummaryProvider for ClaudeProvider {
         100_000
     }
 
-    async fn complete_json(&self, prompt: &str) -> Result<String, String> {
-        let body = json!({
-            "model": "claude-sonnet-5",
-            "max_tokens": 8192,
-            "messages": [{ "role": "user", "content": prompt }]
-        });
+    async fn complete_json(&self, system: &str, transcript: &str, task: &str) -> Result<String, String> {
+        let body = build_request_body(system, transcript, task);
 
         let response = self
             .client

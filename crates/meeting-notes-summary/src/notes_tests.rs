@@ -35,8 +35,8 @@ impl SummaryProvider for ScriptedProvider {
     fn input_budget_words(&self) -> usize {
         self.budget
     }
-    async fn complete_json(&self, prompt: &str) -> Result<String, String> {
-        self.prompts.lock().unwrap().push(prompt.to_string());
+    async fn complete_json(&self, system: &str, transcript: &str, task: &str) -> Result<String, String> {
+        self.prompts.lock().unwrap().push(format!("{system}\n\n{transcript}\n\n{task}"));
         self.responses
             .lock()
             .unwrap()
@@ -52,7 +52,7 @@ impl SummaryProvider for FailingProvider {
     fn input_budget_words(&self) -> usize {
         1000
     }
-    async fn complete_json(&self, _prompt: &str) -> Result<String, String> {
+    async fn complete_json(&self, _system: &str, _transcript: &str, _task: &str) -> Result<String, String> {
         Err("endpoint down".to_string())
     }
 }

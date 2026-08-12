@@ -47,8 +47,14 @@ pub struct SummaryResult {
 /// provider.
 #[async_trait]
 pub trait SummaryProvider {
-    /// Sends `prompt` and returns the raw JSON text of the response.
-    async fn complete_json(&self, prompt: &str) -> Result<String, String>;
+    /// Sends a prompt built from three parts and returns the raw JSON text
+    /// of the response. `system` and `transcript` are identical across
+    /// every pass run for the same meeting -- `system` is in fact identical
+    /// across every call the app ever makes -- so a provider that supports
+    /// prompt caching (see `ClaudeProvider`) should treat them as the
+    /// cacheable prefix. `task` is the pass-specific instruction and varies
+    /// every call.
+    async fn complete_json(&self, system: &str, transcript: &str, task: &str) -> Result<String, String>;
 
     /// Roughly how many transcript words this provider can accept at once.
     /// Longer transcripts are chunked to fit.

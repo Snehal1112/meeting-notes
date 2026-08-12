@@ -54,7 +54,8 @@ impl SummaryProvider for OllamaProvider {
         (self.num_ctx as usize / 2) * 3 / 4
     }
 
-    async fn complete_json(&self, prompt: &str) -> Result<String, String> {
+    async fn complete_json(&self, system: &str, transcript: &str, task: &str) -> Result<String, String> {
+        let prompt = format!("{system}\n\n{transcript}\n\n{task}");
         let body = json!({
             "model": self.model,
             "prompt": prompt,

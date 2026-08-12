@@ -41,7 +41,11 @@ async fn completes_json_via_real_ollama_endpoint() {
     let provider = ollama::OllamaProvider::new(endpoint, model, DEFAULT_NUM_CTX);
 
     let raw = provider
-        .complete_json(r#"Respond with ONLY {"ok": true} and nothing else."#)
+        .complete_json(
+            "You are a test assistant.",
+            "n/a",
+            r#"Respond with ONLY {"ok": true} and nothing else."#,
+        )
         .await
         .expect("real Ollama call should succeed");
 

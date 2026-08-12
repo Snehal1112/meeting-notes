@@ -70,7 +70,11 @@ async fn completes_json_via_real_claude_api() {
     let provider = claude::ClaudeProvider::new(api_key);
 
     let raw = provider
-        .complete_json(r#"Respond with ONLY {"ok": true} and nothing else."#)
+        .complete_json(
+            "You are a test assistant.",
+            "n/a",
+            r#"Respond with ONLY {"ok": true} and nothing else."#,
+        )
         .await
         .expect("real Claude API call should succeed");
 
