@@ -337,3 +337,16 @@ fn succeeds_when_the_required_key_is_present_but_its_value_is_empty() {
     let parsed = parse_pass_fragment(empty, &["open_questions"]).expect("parse");
     assert!(parsed.open_questions.is_empty());
 }
+
+#[test]
+fn notes_pass_tells_the_model_to_tag_each_decision_with_its_outcome() {
+    for meeting_type in ALL_TYPES {
+        let prompt = notes_pass_for(meeting_type);
+        for tag in ["[Agreed]", "[Disagreed]", "[Shelved]"] {
+            assert!(
+                prompt.contains(tag),
+                "{meeting_type:?} notes pass does not ask for the {tag} decision tag"
+            );
+        }
+    }
+}
