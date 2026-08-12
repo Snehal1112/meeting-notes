@@ -63,11 +63,14 @@ pub fn build_request_body(system: &str, transcript: &str, task: &str) -> serde_j
 
 /// Extracts the text of the first text-type block from a parsed Claude API
 /// response body. Scans the `content` array rather than assuming
-/// `content[0]` is the text block: with thinking on (the default on
-/// claude-sonnet-5 when the `thinking` request parameter is omitted),
-/// `content[0]` is a `{"type": "thinking", ...}` block instead, and this
-/// scan is robust to that regardless of whether thinking is on, off, or
-/// future content-block types get added.
+/// `content[0]` is the text block: on `claude-sonnet-4-5-20250929` (the
+/// model used in `build_request_body`), thinking is off by default and must
+/// be explicitly requested, so in normal operation `content[0]` already is
+/// the text block. This scan is a defensive measure for if the `thinking`
+/// request parameter is ever set (in which case `content[0]` is a
+/// `{"type": "thinking", ...}` block instead) or the API adds new
+/// content-block types, so it stays correct either way rather than being
+/// needed on every call today.
 ///
 /// Also surfaces a clear error for a truncated response (`stop_reason ==
 /// "max_tokens"`) rather than letting it fall through to a generic "failed

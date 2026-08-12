@@ -15,12 +15,12 @@ fn extracts_text_block_when_it_is_the_first_content_block() {
 
 #[test]
 fn extracts_text_block_when_preceded_by_a_thinking_block() {
-    // Reproduces the real claude-sonnet-5 response shape when the `thinking`
-    // request parameter is omitted: adaptive thinking runs by default, and
-    // content[0] is a thinking block (empty text, since display defaults to
-    // "omitted") rather than the text block. Before the fix, content[0]["text"]
-    // was null here and generate() failed with "unexpected Claude API response
-    // shape" on every real call.
+    // Reproduces the real Claude response shape when thinking is enabled via
+    // the `thinking` request parameter: content[0] is a thinking block
+    // (empty text, since display defaults to "omitted") rather than the
+    // text block. Before the fix, content[0]["text"] was null here and
+    // generate() failed with "unexpected Claude API response shape" on
+    // every such call.
     let parsed = serde_json::json!({
         "content": [
             {"type": "thinking", "thinking": ""},

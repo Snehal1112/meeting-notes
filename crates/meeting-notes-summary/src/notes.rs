@@ -73,8 +73,8 @@ pub fn notes_pass_for(meeting_type: MeetingType) -> String {
 }
 
 /// The shared persona line, sent once as part of the cached `system` prompt
-/// (see `ClaudeProvider::build_request_body`) rather than repeated inside
-/// every meeting-type guidance const.
+/// (see `claude::build_request_body`) rather than repeated inside every
+/// meeting-type guidance const.
 const SYSTEM_PERSONA: &str = "You write detailed meeting notes from raw transcripts.";
 
 /// The user did not commit to a kind of meeting, so the model infers the
