@@ -77,3 +77,26 @@ async fn completes_json_via_real_claude_api() {
     let parsed: serde_json::Value = serde_json::from_str(&raw).expect("valid JSON");
     assert_eq!(parsed["ok"], true);
 }
+
+#[test]
+fn request_body_marks_system_and_transcript_as_cacheable_but_not_task() {
+    let body = claude::build_request_body("persona and caveat", "Transcript:\nhello", "pass-specific task");
+
+    assert_eq!(body["system"][0]["text"], "persona and caveat");
+    assert_eq!(body["system"][0]["cache_control"]["type"], "ephemeral");
+
+    let content = &body["messages"][0]["content"];
+    assert_eq!(content[0]["text"], "Transcript:\nhello");
+    assert_eq!(content[0]["cache_control"]["type"], "ephemeral");
+    assert_eq!(content[1]["text"], "pass-specific task");
+    assert!(
+        content[1].get("cache_control").is_none(),
+        "the task block varies every call and must not be marked cacheable"
+    );
+}
+
+#[test]
+fn request_body_uses_the_current_sonnet_model_id() {
+    let body = claude::build_request_body("s", "t", "k");
+    assert_eq!(body["model"], "claude-sonnet-4-5-20250929");
+}

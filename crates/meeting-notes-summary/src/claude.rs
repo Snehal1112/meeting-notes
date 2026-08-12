@@ -27,6 +27,40 @@ impl ClaudeProvider {
     }
 }
 
+/// Builds the Claude Messages API request body. `system` and `transcript`
+/// are marked as separate cacheable content blocks (`cache_control:
+/// ephemeral`) because they are identical across every pass run for one
+/// meeting -- without this, three passes per meeting each pay full
+/// input-token price for the same transcript. `task` is the pass-specific
+/// instruction and is sent uncached, since it differs every call.
+pub fn build_request_body(system: &str, transcript: &str, task: &str) -> serde_json::Value {
+    json!({
+        "model": "claude-sonnet-4-5-20250929",
+        "max_tokens": 8192,
+        "system": [
+            {
+                "type": "text",
+                "text": system,
+                "cache_control": {"type": "ephemeral"}
+            }
+        ],
+        "messages": [{
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": transcript,
+                    "cache_control": {"type": "ephemeral"}
+                },
+                {
+                    "type": "text",
+                    "text": task
+                }
+            ]
+        }]
+    })
+}
+
 /// Extracts the text of the first text-type block from a parsed Claude API
 /// response body. Scans the `content` array rather than assuming
 /// `content[0]` is the text block: with thinking on (the default on
