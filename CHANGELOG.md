@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.0.3](https://github.com/Snehal1112/meeting-notes/compare/v0.0.2...v0.0.3) (2026-08-12)
+
+### Features
+
+* add cache-aware Claude request body builder ([8d5a54e](https://github.com/Snehal1112/meeting-notes/commit/8d5a54e94db0f90c54fe061022e584eb90c1b1a4))
+* split SummaryProvider prompts into cacheable system/transcript/task parts ([177d874](https://github.com/Snehal1112/meeting-notes/commit/177d8740582420aba9f36294bc61927f02235ed4))
+* tag each decision with Agreed/Disagreed/Shelved in the notes prompt ([b01b20a](https://github.com/Snehal1112/meeting-notes/commit/b01b20a4557080ee6e91f3ce005004ecb840d3a6))
+
+### Bug Fixes
+
+* back up a malformed config.toml instead of silently discarding it ([b0d4f84](https://github.com/Snehal1112/meeting-notes/commit/b0d4f84765270a31800c321791e40998b2c7f41e))
+* discover whisper-cli and the ggml model outside the dev CWD/PATH ([009d8c6](https://github.com/Snehal1112/meeting-notes/commit/009d8c6e0003a496989e1b9642af4f2d01288c07))
+* tighten the notes prompts against unsupported claims ([7f857a1](https://github.com/Snehal1112/meeting-notes/commit/7f857a1d98078be0e0384c8eabdd7d2a934141df))
+
 ## [0.0.2](https://github.com/Snehal1112/meeting-notes/compare/v0.0.1...v0.0.2) (2026-08-09)
 
 ### Features
